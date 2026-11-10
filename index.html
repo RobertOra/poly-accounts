@@ -238,6 +238,7 @@
   }
   const $ = id => document.getElementById(id);
   const listEl = () => document.querySelector('.list');
+  let jumping = false;
   const isCarousel = () => matchMedia('(max-width: 700px)').matches;
   function markTabs() { document.querySelectorAll('#tabs button').forEach((t, i) => t.classList.toggle('on', i === active)); }
   function goTo(i, smooth) {
@@ -245,13 +246,20 @@
     if (isCarousel()) {
       const from = Math.round(l.scrollLeft / l.clientWidth);
       if (!smooth || from === i) { l.scrollLeft = i * l.clientWidth; return; }
-      const dir = i > from ? 1 : -1;
-      l.style.transition = 'opacity 90ms ease'; l.style.opacity = '0';
-      setTimeout(() => {
-        l.style.scrollSnapType = 'none'; l.scrollLeft = i * l.clientWidth; l.style.scrollSnapType = '';
-        l.style.transition = 'opacity 160ms ease'; l.style.opacity = '1';
-        l.children[i]?.animate([{ transform: `translateX(${dir * 28}px)` }, { transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.2,.8,.2,1)' });
-      }, 90);
+      // slide straight from the current card to the chosen one, as if they were neighbours (no passing through the others)
+      const dir = i > from ? 1 : -1, cur = l.children[from], r = cur.getBoundingClientRect(), W = l.clientWidth;
+      const ghost = cur.cloneNode(true);
+      Object.assign(ghost.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', margin: '0', zIndex: 3, pointerEvents: 'none' });
+      document.body.appendChild(ghost);
+      jumping = true;
+      l.scrollLeft = i * W;     // jump straight there (snapping stays on: toggling it makes the browser re-snap a card back)
+      const listTop = l.getBoundingClientRect().top + scrollY - document.querySelector('.top').offsetHeight;
+      if (scrollY > listTop) window.scrollTo({ top: listTop, behavior: 'instant' });   // the new card starts at its top
+      const opts = { duration: 320, easing: 'cubic-bezier(.25,.8,.25,1)' };
+      ghost.animate([{ transform: 'none' }, { transform: `translateX(${-dir * W}px)` }], opts);
+      l.animate([{ transform: `translateX(${dir * W}px)` }, { transform: 'none' }], opts);   // move the row, not the card: a moving card drags the snap with it
+      setTimeout(() => { ghost.remove(); jumping = false; }, opts.duration + 30);
+      return;
     }
     else l.children[i]?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'start' });
   }
@@ -267,6 +275,7 @@
     if (l && isCarousel()) {
       l.scrollLeft = active * l.clientWidth;               // re-rendering must not jump back to the first account
       l.addEventListener('scroll', () => {
+        if (jumping) return;
         const i = Math.round(l.scrollLeft / l.clientWidth);
         if (i !== active && i >= 0 && i < accounts.length) {
           active = i; store.set('active', i); markTabs();
