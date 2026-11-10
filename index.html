@@ -38,13 +38,6 @@
   .tabs::-webkit-scrollbar { display:none; }
   .tabs button { flex:none; padding:6px 12px; border-radius:999px; font-size:13px; font-weight:600; color:var(--muted); background:var(--chip); }
   .tabs button.on { background:var(--fg); color:var(--bg); }
-  @media (max-width: 700px) {
-    .tabs { display:flex; }
-    .list { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; gap:0; padding:12px 0 28px; scrollbar-width:none;
-      overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
-    .list::-webkit-scrollbar { display:none; }
-    .list > .col { flex:0 0 calc(100% - 24px); margin:0 12px; scroll-snap-align:center; scroll-snap-stop:always; }
-  }
   .updated { font-size:12px; color:var(--faint); padding:8px 16px 0; }
   .list { display:grid; gap:14px; padding:12px 12px 28px; grid-template-columns:repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
   .col { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
@@ -84,6 +77,14 @@
   .none textarea { display:block; width:100%; margin:16px 0 10px; padding:10px; border-radius:10px; border:1px solid var(--line);
     background:var(--card); color:var(--fg); font:13px/1.35 ui-monospace, Menlo, monospace; resize:none; }
   .none .go { width:100%; padding:12px; border-radius:10px; background:var(--accent); color:#fff; font-weight:650; }
+  /* phone: one account per screen, swipe sideways (must come after the base .list rule) */
+  @media (max-width: 700px) {
+    .tabs { display:flex; }
+    .list { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; gap:0; padding:12px 0 28px; scrollbar-width:none;
+      overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
+    .list::-webkit-scrollbar { display:none; }
+    .list > .col { flex:0 0 calc(100% - 24px); margin:0 12px; scroll-snap-align:center; scroll-snap-stop:always; }
+  }
 </style>
 </head>
 <body>
@@ -241,7 +242,10 @@
   function markTabs() { document.querySelectorAll('#tabs button').forEach((t, i) => t.classList.toggle('on', i === active)); }
   function goTo(i, smooth) {
     const l = listEl(); if (!l) return;
-    if (isCarousel()) l.scrollTo({ left: i * l.clientWidth, behavior: smooth ? 'smooth' : 'instant' });
+    if (isCarousel()) {
+      if (smooth) l.children[i]?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      else l.scrollLeft = i * l.clientWidth;
+    }
     else l.children[i]?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'start' });
   }
   function render() {
