@@ -1,5 +1,7 @@
 # poly-accounts
 
+**Open it:** https://robertora.github.io/poly-accounts/
+
 A small home-screen web app: a read-only overview of several Polymarket accounts, one card each (portfolio, positions value, P&L chart, open positions, recent activity). Nothing is combined across accounts.
 
 - Data comes from Polymarket's public Data API and the account's pUSD balance on Polygon. It never logs in and never trades.
