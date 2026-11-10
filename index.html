@@ -38,6 +38,23 @@
   .tabs::-webkit-scrollbar { display:none; }
   .tabs button { flex:none; padding:6px 12px; border-radius:999px; font-size:13px; font-weight:600; color:var(--muted); background:var(--chip); }
   .tabs button.on { background:var(--fg); color:var(--bg); }
+  .text-btn { font-size:15px; font-weight:600; color:var(--accent); padding:6px 4px; }
+  .editor { padding:8px 16px 40px; max-width:640px; margin:0 auto; }
+  .editor h2 { font-size:13px; font-weight:650; color:var(--muted); margin:16px 0 6px; text-transform:none; }
+  .erow { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .erow .av { width:34px; height:34px; font-size:15px; }
+  .erow .t { flex:1; min-width:0; }
+  .erow .t .a { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .erow .t .b { font-size:12px; color:var(--faint); }
+  .ebtn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); background:var(--chip); }
+  .ebtn:disabled { opacity:.35; }
+  .ebtn.del { color:var(--down); }
+  .addbox { display:flex; gap:8px; margin-top:8px; }
+  .addbox input { flex:1; min-width:0; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:16px -apple-system, sans-serif; }
+  .addbox button, .pick { padding:0 16px; border-radius:10px; background:var(--accent); color:#fff; font-weight:650; }
+  .pick { height:34px; padding:0 14px; font-size:14px; }
+  .pick:disabled { background:var(--chip); color:var(--muted); }
+  .hint2 { font-size:13px; color:var(--muted); margin-top:8px; }
   .updated { font-size:12px; color:var(--faint); padding:8px 16px 0; }
   .list { display:grid; gap:14px; padding:12px 12px 28px; grid-template-columns:repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
   .col { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
@@ -92,6 +109,7 @@
   <h1>Accounts</h1>
   <div class="seg" id="seg"></div>
   <div class="tabs" id="tabs"></div>
+  <button class="text-btn" id="edit">Edit</button>
   <button class="icon-btn" id="refresh" aria-label="Refresh" style="order:0"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3v4h-4"/></svg></button>
 </div>
 <div class="updated" id="updated"></div>
@@ -112,17 +130,20 @@
   const b64urlDecode = s => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
   // The #import fragment is kept in the address on purpose: iOS gives a home-screen app its own storage, so the saved
   // shortcut must carry the list. (Fragments are never sent to the server.) A pasted link works too (empty state).
-  function importLink(text) {
+  function importLink(text, force) {
     const m = String(text || '').match(/#import=([A-Za-z0-9_-]+)/);
-    if (!m) return false;
+    if (!m || (!force && store.get('importedFrom', '') === m[1])) return false;   // same link as before: keep manual edits
     try {
       const list = JSON.parse(b64urlDecode(m[1]));
-      if (Array.isArray(list) && list.length && list.every(a => /^0x[0-9a-f]{40}$/i.test(a.w))) { store.set('accounts', list); return true; }
+      if (Array.isArray(list) && list.length && list.every(a => /^0x[0-9a-f]{40}$/i.test(a.w))) {
+        store.set('accounts', list); store.set('importedFrom', m[1]); return true;
+      }
     } catch {}
     return false;
   }
   importLink(location.hash);
-  const accounts = store.get('accounts', []);
+  let accounts = store.get('accounts', []);
+  const saveAccounts = () => store.set('accounts', accounts);
   let range = store.get('range', '1w');
   let active = Math.min(store.get('active', 0), Math.max(0, accounts.length - 1));   // account shown on a phone (carousel)
 
@@ -237,6 +258,46 @@
     </section>`;
   }
   const $ = id => document.getElementById(id);
+  const ed = { open: false, results: null, busy: false, msg: '' };
+  const short = w => w.slice(0, 6) + '…' + w.slice(-4);
+  const GAMMA = 'https://gamma-api.polymarket.com';
+  // username, @username, profile link, wallet address, or a phone link -> candidate accounts
+  async function findAccounts(q) {
+    q = q.trim();
+    if (/#import=/.test(q)) return { link: q };
+    const wallet = (q.match(/0x[0-9a-fA-F]{40}/) || [])[0];
+    if (wallet) {
+      const r = await fetch(`${GAMMA}/public-profile?address=${wallet}`);
+      const p = r.ok ? await r.json() : {};
+      return { list: [{ w: wallet.toLowerCase(), n: p.name || p.pseudonym || short(wallet), u: p.name || undefined, i: p.profileImage || undefined }] };
+    }
+    const name = q.replace(/^https?:\/\/(www\.)?polymarket\.com\//i, '').replace(/^@/, '').split(/[/?#]/)[0].trim();
+    if (!name) return { list: [] };
+    const r = await fetch(`${GAMMA}/public-search?q=${encodeURIComponent(name)}&search_profiles=true&limit_per_type=6`);
+    const profiles = ((r.ok ? await r.json() : {}).profiles || []).filter(p => p.proxyWallet);
+    profiles.sort((a, b) => ((b.name || '').toLowerCase() === name.toLowerCase()) - ((a.name || '').toLowerCase() === name.toLowerCase()));
+    return { list: profiles.map(p => ({ w: p.proxyWallet.toLowerCase(), n: p.name || p.pseudonym, u: p.name || undefined, i: p.profileImage || undefined })) };
+  }
+  function editor() {
+    const rows = accounts.map((a, i) => `<div class="erow">${avatar(a)}
+        <div class="t"><div class="a">${esc(nameOf(a))}</div><div class="b">${short(a.w)}</div></div>
+        <button class="ebtn" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l5-5 5 5"/></svg></button>
+        <button class="ebtn" data-down="${i}" ${i === accounts.length - 1 ? 'disabled' : ''} aria-label="Move down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7.5l5 5 5-5"/></svg></button>
+        <button class="ebtn del" data-del="${i}" aria-label="Remove"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`).join('');
+    const results = ed.results == null ? '' : ed.results.length ? ed.results.map(a => {
+        const have = accounts.some(x => x.w === a.w);
+        return `<div class="erow">${avatar(a)}<div class="t"><div class="a">${esc(nameOf(a))}</div><div class="b">${short(a.w)}</div></div>
+          <button class="pick" data-pick="${a.w}" ${have ? 'disabled' : ''}>${have ? 'Added' : 'Add'}</button></div>`;
+      }).join('') : '<div class="hint2">No Polymarket account found.</div>';
+    return `<div class="editor">
+      <h2>Your accounts</h2>${rows || '<div class="hint2">None yet.</div>'}
+      <h2>Add an account</h2>
+      <form class="addbox" id="addform"><input id="addq" placeholder="Username, profile link or wallet" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+        <button type="submit">${ed.busy ? '…' : 'Find'}</button></form>
+      ${ed.msg ? `<div class="hint2">${esc(ed.msg)}</div>` : ''}
+      ${results}
+    </div>`;
+  }
   const listEl = () => document.querySelector('.list');
   let jumping = false;
   const isCarousel = () => matchMedia('(max-width: 700px)').matches;
@@ -267,8 +328,12 @@
     $('tabs').innerHTML = accounts.length > 1 ? accounts.map((a, i) => `<button data-tab="${i}" class="${i === active ? 'on' : ''}">${esc(nameOf(a))}</button>`).join('') : '';
     $('seg').innerHTML = RANGES.map(([k, l]) => `<button data-range="${k}" class="${k === range ? 'on' : ''}">${l}</button>`).join('');
     $('updated').textContent = !accounts.length ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) : 'Loading…';
+    $('edit').textContent = ed.open ? 'Done' : accounts.length ? 'Edit' : 'Add';
+    $('seg').style.display = ed.open ? 'none' : '';
+    $('tabs').style.display = ed.open ? 'none' : '';
+    if (ed.open) { $('updated').textContent = ''; $('main').innerHTML = editor(); return; }
     $('main').innerHTML = accounts.length ? `<div class="list">${accounts.map(card).join('')}</div>`
-      : `<div class="none"><h2>No accounts yet</h2>Paste the phone link from the Chrome extension (polymarket.com/accounts → Phone link):
+      : `<div class="none"><h2>No accounts yet</h2>Tap <b>Add</b> at the top to add accounts by username, or paste the phone link from the Chrome extension:
           <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#import=…"></textarea>
           <button class="go" id="usepaste">Add accounts</button><div id="pasteerr" class="err"></div></div>`;
     const l = listEl();
@@ -300,11 +365,43 @@
     const [ts, v] = series[i];
     box.querySelector('.tip').innerHTML = `<span class="${tone(v)}">${usd(v, true)}</span> · ${new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })}`;
   }
+  document.addEventListener('submit', async e => {
+    if (e.target.id !== 'addform') return;
+    e.preventDefault();
+    const q = $('addq').value;
+    if (!q.trim() || ed.busy) return;
+    ed.busy = true; ed.msg = ''; render(); $('addq').value = q;
+    try {
+      const r = await findAccounts(q);
+      if (r.link) { ed.busy = false; if (importLink(r.link, true)) location.reload(); else { ed.msg = "That link didn't work."; render(); } return; }
+      ed.results = r.list;
+    } catch { ed.results = null; ed.msg = "Couldn't reach Polymarket. Try again."; }
+    ed.busy = false; render(); $('addq').value = q;
+  });
   document.addEventListener('pointermove', scrub);
   document.addEventListener('pointerdown', scrub);
 
   document.addEventListener('click', async e => {
     const b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'edit') {
+      ed.open = !ed.open; ed.results = null; ed.msg = '';
+      if (!ed.open) { active = Math.min(active, Math.max(0, accounts.length - 1)); store.set('active', active); render(); refresh(); return; }
+      render(); return;
+    }
+    if (b.dataset.up || b.dataset.down) {
+      const i = +(b.dataset.up ?? b.dataset.down), j = b.dataset.up ? i - 1 : i + 1;
+      [accounts[i], accounts[j]] = [accounts[j], accounts[i]]; saveAccounts(); render(); return;
+    }
+    if (b.dataset.del) {
+      const a = accounts[+b.dataset.del];
+      if (confirm(`Remove ${nameOf(a)} from this list?`)) { accounts.splice(+b.dataset.del, 1); delete data[a.w]; saveAccounts(); render(); }
+      return;
+    }
+    if (b.dataset.pick) {
+      const a = ed.results.find(x => x.w === b.dataset.pick);
+      if (a && !accounts.some(x => x.w === a.w)) { accounts.push(Object.fromEntries(Object.entries(a).filter(([, v]) => v))); saveAccounts(); }
+      render(); return;
+    }
     if (b.dataset.tab) { active = +b.dataset.tab; store.set('active', active); markTabs(); goTo(active, true); return; }
     if (b.id === 'usepaste') {
       if (importLink(document.getElementById('paste').value)) location.reload();
