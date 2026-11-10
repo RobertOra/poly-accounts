@@ -33,6 +33,18 @@
   .seg button.on { background:var(--card); color:var(--fg); box-shadow:0 1px 2px rgba(0,0,0,.15); }
   .icon-btn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); }
   .icon-btn:active { background:var(--hover); }
+  .top { flex-wrap:wrap; }
+  .tabs { order:1; display:none; width:100%; gap:6px; overflow-x:auto; scrollbar-width:none; margin:2px -16px -2px; padding:0 16px; }
+  .tabs::-webkit-scrollbar { display:none; }
+  .tabs button { flex:none; padding:6px 12px; border-radius:999px; font-size:13px; font-weight:600; color:var(--muted); background:var(--chip); }
+  .tabs button.on { background:var(--fg); color:var(--bg); }
+  @media (max-width: 700px) {
+    .tabs { display:flex; }
+    .list { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; gap:0; padding:12px 0 28px; scrollbar-width:none;
+      overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
+    .list::-webkit-scrollbar { display:none; }
+    .list > .col { flex:0 0 calc(100% - 24px); margin:0 12px; scroll-snap-align:center; scroll-snap-stop:always; }
+  }
   .updated { font-size:12px; color:var(--faint); padding:8px 16px 0; }
   .list { display:grid; gap:14px; padding:12px 12px 28px; grid-template-columns:repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
   .col { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
@@ -78,7 +90,8 @@
 <div class="top">
   <h1>Accounts</h1>
   <div class="seg" id="seg"></div>
-  <button class="icon-btn" id="refresh" aria-label="Refresh"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3v4h-4"/></svg></button>
+  <div class="tabs" id="tabs"></div>
+  <button class="icon-btn" id="refresh" aria-label="Refresh" style="order:0"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3v4h-4"/></svg></button>
 </div>
 <div class="updated" id="updated"></div>
 <main id="main"></main>
@@ -110,6 +123,7 @@
   importLink(location.hash);
   const accounts = store.get('accounts', []);
   let range = store.get('range', '1w');
+  let active = Math.min(store.get('active', 0), Math.max(0, accounts.length - 1));   // account shown on a phone (carousel)
 
   // ---- helpers ----
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -222,13 +236,35 @@
     </section>`;
   }
   const $ = id => document.getElementById(id);
+  const listEl = () => document.querySelector('.list');
+  const isCarousel = () => matchMedia('(max-width: 700px)').matches;
+  function markTabs() { document.querySelectorAll('#tabs button').forEach((t, i) => t.classList.toggle('on', i === active)); }
+  function goTo(i, smooth) {
+    const l = listEl(); if (!l) return;
+    if (isCarousel()) l.scrollTo({ left: i * l.clientWidth, behavior: smooth ? 'smooth' : 'instant' });
+    else l.children[i]?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'start' });
+  }
   function render() {
+    $('tabs').innerHTML = accounts.length > 1 ? accounts.map((a, i) => `<button data-tab="${i}" class="${i === active ? 'on' : ''}">${esc(nameOf(a))}</button>`).join('') : '';
     $('seg').innerHTML = RANGES.map(([k, l]) => `<button data-range="${k}" class="${k === range ? 'on' : ''}">${l}</button>`).join('');
     $('updated').textContent = !accounts.length ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) : 'Loading…';
     $('main').innerHTML = accounts.length ? `<div class="list">${accounts.map(card).join('')}</div>`
       : `<div class="none"><h2>No accounts yet</h2>Paste the phone link from the Chrome extension (polymarket.com/accounts → Phone link):
           <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#import=…"></textarea>
           <button class="go" id="usepaste">Add accounts</button><div id="pasteerr" class="err"></div></div>`;
+    const l = listEl();
+    if (l && isCarousel()) {
+      l.scrollLeft = active * l.clientWidth;               // re-rendering must not jump back to the first account
+      l.addEventListener('scroll', () => {
+        const i = Math.round(l.scrollLeft / l.clientWidth);
+        if (i !== active && i >= 0 && i < accounts.length) {
+          active = i; store.set('active', i); markTabs();
+          document.querySelector('#tabs .on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+          const top = l.getBoundingClientRect().top + scrollY - document.querySelector('.top').offsetHeight;
+          if (scrollY > top) window.scrollTo({ top, behavior: 'instant' });   // show the new account from its top
+        }
+      }, { passive: true });
+    }
   }
 
   // chart scrubbing (mouse or finger): show that account's value at that point, above its own chart
@@ -249,6 +285,7 @@
 
   document.addEventListener('click', async e => {
     const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.tab) { active = +b.dataset.tab; store.set('active', active); markTabs(); goTo(active, true); return; }
     if (b.id === 'usepaste') {
       if (importLink(document.getElementById('paste').value)) location.reload();
       else document.getElementById('pasteerr').textContent = "That doesn't look like a phone link.";
