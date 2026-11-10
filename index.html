@@ -78,6 +78,8 @@
   .empty { font-size:13px; color:var(--faint); padding:6px 14px 12px; }
   .sec { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 4px; border-top:1px solid var(--line);
     font-size:13px; font-weight:650; color:var(--muted); }
+  .seg.sm button { padding:5px 12px; font-size:13px; }
+  .sec { padding-top:10px; }
   .sec .more { font-weight:600; color:var(--accent); font-size:13px; padding:4px 0 4px 12px; }
   .row { display:flex; align-items:center; gap:10px; padding:8px 14px; }
   a.row:active { background:var(--hover); }
@@ -167,7 +169,7 @@
     const s = Math.abs(n).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return (n < 0 ? '−' : sign && n > 0 ? '+' : '') + s;
   };
-  const pct = n => (n == null || !isFinite(n) ? '' : (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(1) + '%');
+  const pct = n => (n == null || !isFinite(n) ? '' : `(${Math.abs(n).toFixed(1)}%)`);
   const cents = p => (p == null ? '–' : (p * 100 < 1 ? (p * 100).toFixed(1) : Math.round(p * 100)) + '¢');
   const ago = ts => { const s = Math.max(0, Date.now() / 1000 - ts); return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago'; };
   const tone = n => (n > 0 ? 'up' : n < 0 ? 'down' : '');
@@ -190,7 +192,7 @@
   }
 
   // ---- data ----
-  const data = {}, ui = { allPos: {}, moreAct: {} };
+  const data = {}, ui = { allPos: {}, moreAct: {}, view: store.get('view', 'positions') };
   let updatedAt = 0;
   async function loadAccount(w) {
     const d = data[w] || (data[w] = {});
@@ -264,10 +266,15 @@
       </div>
       ${d.pnl ? chart(series, a.w) : '<div class="empty">Loading…</div>'}
       ${d.error ? `<div class="err">${esc(d.error)}</div>` : ''}
-      <div class="sec"><span>Positions</span>${pos.length > 5 ? `<button class="more" data-allpos="${a.w}">${ui.allPos[a.w] ? 'Show less' : `Show all ${pos.length}`}</button>` : ''}</div>
-      ${d.positions ? (pos.length ? (ui.allPos[a.w] ? pos : pos.slice(0, 5)).map(positionRow).join('') : '<div class="empty">No open positions.</div>') : '<div class="empty">Loading…</div>'}
-      <div class="sec"><span>Activity</span>${d.activity?.length >= 8 ? `<button class="more" data-moreact="${a.w}">${ui.moreAct[a.w] ? 'Show less' : 'Show more'}</button>` : ''}</div>
-      ${d.activity ? (d.activity.length ? d.activity.map(activityRow).join('') : '<div class="empty">No activity yet.</div>') : '<div class="empty">Loading…</div>'}
+      <div class="sec"><div class="seg sm">
+          <button data-view="positions" class="${ui.view === 'positions' ? 'on' : ''}">Positions</button>
+          <button data-view="activity" class="${ui.view === 'activity' ? 'on' : ''}">Activity</button></div>
+        ${ui.view === 'positions'
+          ? (pos.length > 5 ? `<button class="more" data-allpos="${a.w}">${ui.allPos[a.w] ? 'Show less' : `Show all ${pos.length}`}</button>` : '')
+          : (d.activity?.length >= 8 ? `<button class="more" data-moreact="${a.w}">${ui.moreAct[a.w] ? 'Show less' : 'Show more'}</button>` : '')}</div>
+      ${ui.view === 'positions'
+        ? (d.positions ? (pos.length ? (ui.allPos[a.w] ? pos : pos.slice(0, 5)).map(positionRow).join('') : '<div class="empty">No open positions.</div>') : '<div class="empty">Loading…</div>')
+        : (d.activity ? (d.activity.length ? d.activity.map(activityRow).join('') : '<div class="empty">No activity yet.</div>') : '<div class="empty">Loading…</div>')}
     </section>`;
   }
   const $ = id => document.getElementById(id);
@@ -434,6 +441,7 @@
       if (a && !accounts.some(x => x.w === a.w)) { accounts.push(Object.fromEntries(Object.entries(a).filter(([, v]) => v))); saveAccounts(); }
       render(); return;
     }
+    if (b.dataset.view) { ui.view = b.dataset.view; store.set('view', ui.view); render(); return; }
     if (b.dataset.tab) { active = +b.dataset.tab; store.set('active', active); markTabs(); goTo(active, true); return; }
     if (b.id === 'usepaste') {
       if (importLink(document.getElementById('paste').value)) location.reload();
