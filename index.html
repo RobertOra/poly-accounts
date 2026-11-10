@@ -80,7 +80,7 @@
   /* phone: one account per screen, swipe sideways (must come after the base .list rule) */
   @media (max-width: 700px) {
     .tabs { display:flex; }
-    .list { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; gap:0; padding:12px 0 28px; scrollbar-width:none;
+    .list { display:flex; align-items:flex-start; overflow-x:auto; scroll-snap-type:x mandatory; gap:0; padding:12px 0 28px; scrollbar-width:none;
       overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
     .list::-webkit-scrollbar { display:none; }
     .list > .col { flex:0 0 calc(100% - 24px); margin:0 12px; scroll-snap-align:center; scroll-snap-stop:always; }
@@ -243,8 +243,15 @@
   function goTo(i, smooth) {
     const l = listEl(); if (!l) return;
     if (isCarousel()) {
-      if (smooth) l.children[i]?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-      else l.scrollLeft = i * l.clientWidth;
+      const from = Math.round(l.scrollLeft / l.clientWidth);
+      if (!smooth || from === i) { l.scrollLeft = i * l.clientWidth; return; }
+      const dir = i > from ? 1 : -1;
+      l.style.transition = 'opacity 90ms ease'; l.style.opacity = '0';
+      setTimeout(() => {
+        l.style.scrollSnapType = 'none'; l.scrollLeft = i * l.clientWidth; l.style.scrollSnapType = '';
+        l.style.transition = 'opacity 160ms ease'; l.style.opacity = '1';
+        l.children[i]?.animate([{ transform: `translateX(${dir * 28}px)` }, { transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      }, 90);
     }
     else l.children[i]?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'start' });
   }
