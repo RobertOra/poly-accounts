@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Accounts">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0e13" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Accounts</title>
+<style>
+  :root { --bg:#ffffff; --card:#ffffff; --fg:#14171a; --muted:#6b7280; --faint:#9ca3af; --line:rgba(0,0,0,.09);
+    --hover:#f1f2f4; --accent:#1652f0; --up:#16a34a; --down:#dc2626; --chip:#eef0f3; color-scheme:light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0c0e13; --card:#15181f; --fg:#eef0f3; --muted:#9aa3ad; --faint:#6b7480; --line:rgba(255,255,255,.08);
+      --hover:#1f232b; --accent:#5b8cff; --up:#22c55e; --down:#f05252; --chip:#232831; }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--fg); }
+  body { overflow-x:hidden; font:15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; padding-bottom:env(safe-area-inset-bottom); }
+  button { font:inherit; color:inherit; background:none; border:0; padding:0; cursor:pointer; }
+  a { color:inherit; text-decoration:none; }
+  .top { position:sticky; top:0; z-index:5; background:var(--bg); padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;
+    display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line); }
+  .top h1 { font-size:22px; font-weight:700; margin:0; flex:1; min-width:0; }
+  .seg { display:inline-flex; background:var(--chip); border-radius:9px; padding:3px; }
+  .seg button { padding:5px 9px; border-radius:7px; font-size:13px; font-weight:600; color:var(--muted); }
+  .seg button.on { background:var(--card); color:var(--fg); box-shadow:0 1px 2px rgba(0,0,0,.15); }
+  .icon-btn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); }
+  .icon-btn:active { background:var(--hover); }
+  .updated { font-size:12px; color:var(--faint); padding:8px 16px 0; }
+  .list { display:grid; gap:14px; padding:12px 12px 28px; grid-template-columns:repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
+  .col { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
+  .head { display:flex; align-items:center; gap:12px; padding:14px 14px 10px; }
+  .av { width:40px; height:40px; border-radius:50%; flex:none; object-fit:cover; display:inline-flex; align-items:center;
+    justify-content:center; color:#fff; font-weight:650; font-size:17px; }
+  .who { flex:1; min-width:0; }
+  .who .n { display:block; font-weight:650; font-size:17px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .who .w { font-size:12px; color:var(--faint); }
+  .portfolio { padding:0 14px 8px; }
+  .k { font-size:12px; color:var(--muted); }
+  .big { font-size:30px; font-weight:700; letter-spacing:-.01em; font-variant-numeric:tabular-nums; }
+  .stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding:0 14px 6px; }
+  .stat .v { font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; }
+  .up { color:var(--up); } .down { color:var(--down); }
+  .chart { padding:2px 14px 8px; }
+  .chart svg { display:block; width:100%; height:92px; overflow:visible; touch-action:pan-y; }
+  .chart .tip { height:18px; margin-bottom:4px; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; text-align:right; }
+  .empty { font-size:13px; color:var(--faint); padding:6px 14px 12px; }
+  .sec { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 4px; border-top:1px solid var(--line);
+    font-size:13px; font-weight:650; color:var(--muted); }
+  .sec .more { font-weight:600; color:var(--accent); font-size:13px; padding:4px 0 4px 12px; }
+  .row { display:flex; align-items:center; gap:10px; padding:8px 14px; }
+  a.row:active { background:var(--hover); }
+  .row img.mi { width:32px; height:32px; border-radius:7px; flex:none; object-fit:cover; background:var(--chip); }
+  .row .t { flex:1; min-width:0; }
+  .row .t .a { font-size:14px; font-weight:550; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .t .b { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .r { text-align:right; font-variant-numeric:tabular-nums; flex:none; }
+  .row .r .a { font-size:14px; font-weight:600; }
+  .row .r .b { font-size:12px; }
+  .oc { font-weight:650; } .oc.yes { color:var(--up); } .oc.no { color:var(--down); }
+  .tag { font-size:11px; font-weight:650; padding:1px 6px; border-radius:5px; background:var(--chip); color:var(--muted); margin-left:6px; }
+  .err { font-size:12px; color:var(--down); padding:0 14px 10px; }
+  .none { padding:70px 28px; text-align:center; color:var(--muted); }
+  .none h2 { color:var(--fg); font-size:20px; margin:0 0 8px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Accounts</h1>
+  <div class="seg" id="seg"></div>
+  <button class="icon-btn" id="refresh" aria-label="Refresh"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3v4h-4"/></svg></button>
+</div>
+<div class="updated" id="updated"></div>
+<main id="main"></main>
+<script>
+// Read-only overview of Polymarket accounts, one card each; nothing is combined across accounts.
+// This file contains no accounts: the list arrives in the link's #fragment (never sent to any server) and is kept on this device.
+(() => {
+  const API = 'https://data-api.polymarket.com/v2';
+  const PUSD = '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB', RPC = 'https://polygon-bor-rpc.publicnode.com';
+  const RANGES = [['1d', '1D'], ['1w', '1W'], ['1m', '1M'], ['all', 'All']];
+  const store = {
+    get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---- accounts: imported from the extension's phone link (#import=...) ----
+  const b64urlDecode = s => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
+  if (location.hash.startsWith('#import=')) {
+    try {
+      const list = JSON.parse(b64urlDecode(location.hash.slice(8)));
+      if (Array.isArray(list) && list.every(a => /^0x[0-9a-f]{40}$/i.test(a.w))) store.set('accounts', list);
+    } catch {}
+    history.replaceState(null, '', location.pathname);   // keep the list out of the address bar and history
+  }
+  const accounts = store.get('accounts', []);
+  let range = store.get('range', '1w');
+
+  // ---- helpers ----
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const usd = (n, sign = false) => {
+    if (n == null || !isFinite(n)) return '–';
+    const s = Math.abs(n).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (n < 0 ? '−' : sign && n > 0 ? '+' : '') + s;
+  };
+  const pct = n => (n == null || !isFinite(n) ? '' : (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toFixed(1) + '%');
+  const cents = p => (p == null ? '–' : (p * 100 < 1 ? (p * 100).toFixed(1) : Math.round(p * 100)) + '¢');
+  const ago = ts => { const s = Math.max(0, Date.now() / 1000 - ts); return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago'; };
+  const tone = n => (n > 0 ? 'up' : n < 0 ? 'down' : '');
+  const hueOf = w => parseInt(w.slice(2, 8), 16) % 360;
+  const get = async path => { const r = await fetch(API + path, { cache: 'no-store' }); if (!r.ok) throw new Error(r.status); return (await r.json()).data; };
+  const getCash = async w => {
+    const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: PUSD, data: '0x70a08231' + w.slice(2).toLowerCase().padStart(64, '0') }, 'latest'] }) });
+    const j = await r.json(); if (!j.result) throw new Error('rpc'); return Number(BigInt(j.result)) / 1e6;
+  };
+  async function loadPositions(w) {
+    const all = []; let cursor = '';
+    for (let i = 0; i < 5; i++) {
+      const r = await fetch(`${API}/positions?user=${w}&limit=100${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json(); all.push(...(j.data || []));
+      cursor = j.pagination?.has_more ? j.pagination.next_cursor : ''; if (!cursor) break;
+    }
+    return all.sort((a, b) => (b.current_value || 0) - (a.current_value || 0));
+  }
+
+  // ---- data ----
+  const data = {}, ui = { allPos: {}, moreAct: {} };
+  let updatedAt = 0;
+  async function loadAccount(w) {
+    const d = data[w] || (data[w] = {});
+    const res = await Promise.allSettled([get(`/value?user=${w}`), get(`/user-pnl?user=${w}&interval=${range}`), loadPositions(w),
+      get(`/activity?user=${w}&limit=${ui.moreAct[w] ? 40 : 8}`), getCash(w)]);
+    const [value, pnl, positions, activity, cash] = res;
+    if (value.status === 'fulfilled') d.value = value.value?.value;
+    if (pnl.status === 'fulfilled') d.pnl = pnl.value?.points || [];
+    if (positions.status === 'fulfilled') d.positions = positions.value;
+    if (activity.status === 'fulfilled') d.activity = activity.value || [];
+    if (cash.status === 'fulfilled') d.cash = cash.value;
+    d.error = res.some(x => x.status === 'rejected') ? "Some data didn't load; it will retry." : null;
+  }
+  let loading = false;
+  async function refresh() {
+    if (loading || !accounts.length) return;
+    loading = true;
+    await Promise.all(accounts.map(a => loadAccount(a.w).catch(() => {})));
+    loading = false; updatedAt = Date.now(); render();
+  }
+
+  // ---- rendering ----
+  const nameOf = a => a.n || a.w.slice(0, 6) + '…' + a.w.slice(-4);
+  const profileUrl = a => (a.u ? `https://polymarket.com/@${encodeURIComponent(a.u)}` : `https://polymarket.com/profile/${a.w}`);
+  const avatar = a => a.i ? `<img class="av" src="${esc(a.i)}" alt="">` : `<span class="av" style="background:hsl(${hueOf(a.w)} 55% 42%)">${esc(nameOf(a)[0].toUpperCase())}</span>`;
+  function pnlStats(points) {
+    if (!points?.length) return { change: null };
+    const v = p => p.economic_pnl ?? p.position_pnl ?? 0, last = v(points[points.length - 1]);
+    return { change: range === 'all' ? last : last - v(points[0]), series: points.map(p => [p.timestamp, v(p)]) };
+  }
+  function chart(series, w) {
+    if (!series || series.length < 2) return `<div class="empty">Not enough history for this range yet.</div>`;
+    const W = 340, H = 92, ys = series.map(s => s[1]);
+    let lo = Math.min(...ys, 0), hi = Math.max(...ys, 0); if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
+    const x = i => (i / (series.length - 1)) * W, y = v => H - 4 - ((v - lo) / (hi - lo)) * (H - 8);
+    const pts = series.map((s, i) => `${x(i).toFixed(1)},${y(s[1]).toFixed(1)}`).join(' ');
+    const col = ys[ys.length - 1] >= ys[0] ? 'var(--up)' : 'var(--down)';
+    return `<div class="chart" data-w="${w}"><div class="tip"></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" style="stroke:var(--line)" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
+        <polygon points="0,${y(0)} ${pts} ${W},${y(0)}" style="fill:${col};opacity:.1"/>
+        <polyline points="${pts}" style="fill:none;stroke:${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+        <line class="cursor" x1="0" x2="0" y1="0" y2="${H}" style="stroke:var(--faint)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
+      </svg></div>`;
+  }
+  const ocClass = o => (/^yes$/i.test(o || '') ? 'yes' : /^no$/i.test(o || '') ? 'no' : '');
+  const positionRow = p => `<a class="row" href="https://polymarket.com/event/${esc(p.event_slug || '')}">
+      <img class="mi" src="${esc(p.icon || '')}" alt="" loading="lazy">
+      <div class="t"><div class="a">${esc(p.title)}</div>
+        <div class="b"><span class="oc ${ocClass(p.outcome)}">${esc(p.outcome)}</span> · ${(+p.current_size).toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(p.avg_price)} → ${cents(p.current_price)}${p.redeemable ? '<span class="tag">Redeemable</span>' : ''}</div></div>
+      <div class="r"><div class="a">${usd(p.current_value)}</div><div class="b ${tone(p.total_pnl)}">${usd(p.total_pnl, true)} ${pct(p.percent_pnl)}</div></div></a>`;
+  function activityRow(a) {
+    const kind = a.type === 'TRADE' ? (a.side === 'SELL' ? 'Sold' : 'Bought') : a.type === 'REDEEM' ? 'Redeemed' : a.type === 'MERGE' ? 'Merged' : a.type === 'SPLIT' ? 'Split' : (a.type || '').toLowerCase().replace(/^\w/, c => c.toUpperCase());
+    return `<a class="row" href="https://polymarket.com/event/${esc(a.event_slug || '')}">
+      <img class="mi" src="${esc(a.icon || '')}" alt="" loading="lazy">
+      <div class="t"><div class="a">${esc(a.title || '')}</div>
+        <div class="b">${kind}${a.outcome ? ` <span class="oc ${ocClass(a.outcome)}">${esc(a.outcome)}</span>` : ''}${a.type === 'TRADE' && a.price ? ' at ' + cents(a.price) : ''} · ${ago(a.timestamp)}</div></div>
+      <div class="r"><div class="a">${usd(a.usdc_size)}</div></div></a>`;
+  }
+  function card(a) {
+    const d = data[a.w] || {}, { change, series } = pnlStats(d.pnl), pos = d.positions || [];
+    const rangeLabel = RANGES.find(r => r[0] === range)[1];
+    return `<section class="col">
+      <div class="head"><a href="${profileUrl(a)}">${avatar(a)}</a>
+        <div class="who"><a class="n" href="${profileUrl(a)}">${esc(nameOf(a))}</a><div class="w">${a.w.slice(0, 6)}…${a.w.slice(-4)}</div></div></div>
+      <div class="portfolio"><div class="k">Portfolio</div><div class="big">${d.value == null || d.cash == null ? '…' : usd(d.value + d.cash)}</div></div>
+      <div class="stats">
+        <div class="stat"><div class="k">Positions</div><div class="v">${d.value == null ? '…' : usd(d.value)}</div></div>
+        <div class="stat"><div class="k">P&amp;L (${rangeLabel})</div><div class="v ${tone(change)}">${d.pnl ? usd(change, true) : '…'}</div></div>
+        <div class="stat"><div class="k">Open positions</div><div class="v">${d.positions ? pos.length : '…'}</div></div>
+      </div>
+      ${d.pnl ? chart(series, a.w) : '<div class="empty">Loading…</div>'}
+      ${d.error ? `<div class="err">${esc(d.error)}</div>` : ''}
+      <div class="sec"><span>Positions</span>${pos.length > 5 ? `<button class="more" data-allpos="${a.w}">${ui.allPos[a.w] ? 'Show less' : `Show all ${pos.length}`}</button>` : ''}</div>
+      ${d.positions ? (pos.length ? (ui.allPos[a.w] ? pos : pos.slice(0, 5)).map(positionRow).join('') : '<div class="empty">No open positions.</div>') : '<div class="empty">Loading…</div>'}
+      <div class="sec"><span>Activity</span>${d.activity?.length >= 8 ? `<button class="more" data-moreact="${a.w}">${ui.moreAct[a.w] ? 'Show less' : 'Show more'}</button>` : ''}</div>
+      ${d.activity ? (d.activity.length ? d.activity.map(activityRow).join('') : '<div class="empty">No activity yet.</div>') : '<div class="empty">Loading…</div>'}
+    </section>`;
+  }
+  const $ = id => document.getElementById(id);
+  function render() {
+    $('seg').innerHTML = RANGES.map(([k, l]) => `<button data-range="${k}" class="${k === range ? 'on' : ''}">${l}</button>`).join('');
+    $('updated').textContent = !accounts.length ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) : 'Loading…';
+    $('main').innerHTML = accounts.length ? `<div class="list">${accounts.map(card).join('')}</div>`
+      : `<div class="none"><h2>No accounts yet</h2>Open the phone link from the Chrome extension's accounts page (polymarket.com/accounts) to add your accounts to this device.</div>`;
+  }
+
+  // chart scrubbing (mouse or finger): show that account's value at that point, above its own chart
+  function scrub(e) {
+    const box = e.target.closest?.('.chart');
+    document.querySelectorAll('.chart').forEach(c => { if (c !== box) { c.querySelector('.cursor')?.setAttribute('visibility', 'hidden'); c.querySelector('.tip').textContent = ''; } });
+    if (!box) return;
+    const series = pnlStats(data[box.dataset.w]?.pnl).series; if (!series) return;
+    const r = box.querySelector('svg').getBoundingClientRect();
+    const i = Math.max(0, Math.min(series.length - 1, Math.round(((e.clientX - r.left) / r.width) * (series.length - 1))));
+    const cur = box.querySelector('.cursor'), x = (i / (series.length - 1)) * 340;
+    cur.setAttribute('x1', x); cur.setAttribute('x2', x); cur.setAttribute('visibility', 'visible');
+    const [ts, v] = series[i];
+    box.querySelector('.tip').innerHTML = `<span class="${tone(v)}">${usd(v, true)}</span> · ${new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })}`;
+  }
+  document.addEventListener('pointermove', scrub);
+  document.addEventListener('pointerdown', scrub);
+
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.range) {
+      range = b.dataset.range; store.set('range', range);
+      for (const w in data) data[w].pnl = null; render();
+      await Promise.all(accounts.map(async a => { try { data[a.w].pnl = (await get(`/user-pnl?user=${a.w}&interval=${range}`))?.points || []; } catch { data[a.w].pnl = []; } }));
+      render();
+    } else if (b.id === 'refresh') { b.style.opacity = '.5'; await refresh(); b.style.opacity = ''; }
+    else if (b.dataset.allpos) { ui.allPos[b.dataset.allpos] = !ui.allPos[b.dataset.allpos]; render(); }
+    else if (b.dataset.moreact) {
+      const w = b.dataset.moreact; ui.moreAct[w] = !ui.moreAct[w];
+      try { data[w].activity = await get(`/activity?user=${w}&limit=${ui.moreAct[w] ? 40 : 8}`); } catch {}
+      render();
+    }
+  });
+
+  render(); refresh();
+  setInterval(() => { if (!document.hidden) refresh(); }, 60000);
+  setInterval(() => { if (updatedAt) $('updated').textContent = 'Updated ' + ago(updatedAt / 1000); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - updatedAt > 20000) refresh(); });
+})();
+</script>
+</body>
+</html>
