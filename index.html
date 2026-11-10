@@ -197,7 +197,7 @@
   async function loadAccount(w) {
     const d = data[w] || (data[w] = {});
     const res = await Promise.allSettled([get(`/value?user=${w}`), get(`/user-pnl?user=${w}&interval=${range}`), loadPositions(w),
-      get(`/activity?user=${w}&limit=${ui.moreAct[w] ? 40 : 8}`), getCash(w)]);
+      get(`/activity?user=${w}&limit=${ui.moreAct[w] ? 40 : 6}`), getCash(w)]);
     const [value, pnl, positions, activity, cash] = res;
     if (value.status === 'fulfilled') d.value = value.value?.value;
     if (pnl.status === 'fulfilled') d.pnl = pnl.value?.points || [];
@@ -271,10 +271,10 @@
           <button data-view="activity" class="${ui.view === 'activity' ? 'on' : ''}">Activity</button></div>
         ${ui.view === 'positions'
           ? (pos.length > 5 ? `<button class="more" data-allpos="${a.w}">${ui.allPos[a.w] ? 'Show less' : `Show all ${pos.length}`}</button>` : '')
-          : (d.activity?.length >= 8 ? `<button class="more" data-moreact="${a.w}">${ui.moreAct[a.w] ? 'Show less' : 'Show more'}</button>` : '')}</div>
+          : (d.activity?.length > 5 ? `<button class="more" data-moreact="${a.w}">${ui.moreAct[a.w] ? 'Show less' : 'Show more'}</button>` : '')}</div>
       ${ui.view === 'positions'
         ? (d.positions ? (pos.length ? (ui.allPos[a.w] ? pos : pos.slice(0, 5)).map(positionRow).join('') : '<div class="empty">No open positions.</div>') : '<div class="empty">Loading…</div>')
-        : (d.activity ? (d.activity.length ? d.activity.map(activityRow).join('') : '<div class="empty">No activity yet.</div>') : '<div class="empty">Loading…</div>')}
+        : (d.activity ? (d.activity.length ? (ui.moreAct[a.w] ? d.activity : d.activity.slice(0, 5)).map(activityRow).join('') : '<div class="empty">No activity yet.</div>') : '<div class="empty">Loading…</div>')}
     </section>`;
   }
   const $ = id => document.getElementById(id);
@@ -457,7 +457,7 @@
     else if (b.dataset.allpos) { ui.allPos[b.dataset.allpos] = !ui.allPos[b.dataset.allpos]; render(); }
     else if (b.dataset.moreact) {
       const w = b.dataset.moreact; ui.moreAct[w] = !ui.moreAct[w];
-      try { data[w].activity = await get(`/activity?user=${w}&limit=${ui.moreAct[w] ? 40 : 8}`); } catch {}
+      try { data[w].activity = await get(`/activity?user=${w}&limit=${ui.moreAct[w] ? 40 : 6}`); } catch {}
       render();
     }
   });
