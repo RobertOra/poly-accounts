@@ -348,7 +348,7 @@
     </section>`;
   }
   const seriesMap = {};
-  const kName = s => `${s.nick} · Sub ${s.n}${s.n === 0 ? ' (main)' : ''}`;
+  const kName = s => `${s.nick} · Sub ${s.n}${s.n === 0 ? ' (primary)' : ''}`;
   function kalshiStats(s) {
     const since = range === 'all' ? 0 : Date.now() / 1000 - RANGE_SECS[range];
     const sets = [...s.settlements].sort((x, y) => x.ts - y.ts);
