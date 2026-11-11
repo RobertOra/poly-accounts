@@ -170,7 +170,13 @@
     return items && store.get('importedFrom', '') !== items.join(',') ? items : null;   // same link as before: keep manual edits
   })();
   const shareLink = () => location.origin + location.pathname + '#' + accounts.map(a => a.u || a.w).join(',') + (kToken ? '&k=' + kToken : '');
-  const saveAccounts = () => store.set('accounts', accounts);
+  function syncUrl() {
+    const names = accounts.map(a => a.u || a.w).join(',');
+    const target = location.pathname + (names || kToken ? '#' + names + (kToken ? '&k=' + kToken : '') : '');
+    if (location.pathname + location.hash !== target) history.replaceState(null, '', target);
+    store.set('importedFrom', accounts.map(a => a.u || a.w).join(','));
+  }
+  const saveAccounts = () => { store.set('accounts', accounts); syncUrl(); };
   let range = store.get('range', '1w');
   let active = Math.max(0, store.get('active', 0));   // card shown on a phone (carousel); clamped once cards exist
 
@@ -516,7 +522,7 @@
     if (e.target.id === 'kform') {
       e.preventDefault();
       const code = $('kcode').value.trim().replace(/^.*[#&]k=/, '');
-      if (/^[A-Za-z0-9]{16,}$/.test(code)) { kToken = code; store.set('kalshi', kToken); await loadKalshi(); render(); }
+      if (/^[A-Za-z0-9]{16,}$/.test(code)) { kToken = code; store.set('kalshi', kToken); syncUrl(); await loadKalshi(); render(); }
       return;
     }
     if (e.target.id !== 'addform') return;
@@ -542,7 +548,7 @@
       render(); return;
     }
     if (b.id === 'kdisconnect') {
-      if (confirm('Disconnect Kalshi on this device?')) { kToken = ''; store.set('kalshi', ''); kalshi.subs = null; render(); }
+      if (confirm('Disconnect Kalshi on this device?')) { kToken = ''; store.set('kalshi', ''); kalshi.subs = null; syncUrl(); render(); }
       return;
     }
     if (b.id === 'copylink') {
@@ -589,10 +595,10 @@
   if (pendingNames) {
     $('main').innerHTML = '<div class="none">Finding accounts…</div>';
     resolveNames(pendingNames).then(list => {
-      if (list.length) { accounts = list; saveAccounts(); store.set('importedFrom', pendingNames.join(',')); }
+      if (list.length) { accounts = list; saveAccounts(); }
       render(); refresh();
     });
-  } else { render(); refresh(); }
+  } else { if (accounts.length || kToken) syncUrl(); render(); refresh(); }
   setInterval(() => { if (!document.hidden) refresh(); }, 60000);
   setInterval(() => { if (updatedAt && !ed.open) $('updated').textContent = 'Updated ' + ago(updatedAt / 1000); }, 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - updatedAt > 20000) refresh(); });
