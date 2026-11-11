@@ -53,6 +53,10 @@
   .ebtn:disabled { opacity:.35; }
   .ebtn.del { color:var(--down); }
   .addbox { display:flex; gap:8px; margin-top:8px; }
+  .kadd { display:grid; gap:8px; margin-top:8px; }
+  .kadd input, .kadd textarea { width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:16px -apple-system, sans-serif; }
+  .kadd textarea { font:13px/1.35 ui-monospace, Menlo, monospace; resize:none; }
+  .kadd button { height:44px; border-radius:10px; background:var(--accent); color:#fff; font-weight:650; }
   .addbox input { flex:1; min-width:0; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:16px -apple-system, sans-serif; }
   .addbox button, .pick { padding:0 16px; border-radius:10px; background:var(--accent); color:#fff; font-weight:650; }
   .pick { height:34px; padding:0 14px; font-size:14px; }
@@ -124,6 +128,7 @@
 </div>
 <div class="updated" id="updated"></div>
 <main id="main"></main>
+<script src="kalshi.js"></script>
 <script>
 // Read-only overview of Polymarket accounts, one card each; nothing is combined across accounts.
 // This file contains no accounts: the list arrives in the link's #fragment (never sent to any server) and is kept on this device.
@@ -153,15 +158,21 @@
   }
   importLink(location.hash);
   let accounts = store.get('accounts', []);
-  const KALSHI_URL = 'https://kalshi-accounts.robu-ora.workers.dev/summary';
-  let kToken = store.get('kalshi', '');
+  let kAccts = store.get('kalshiAccounts', []);
+  const saveK = () => store.set('kalshiAccounts', kAccts);
+  try { localStorage.removeItem('kalshi'); } catch {}           // old access-code setup, no longer used
   {
-    const m = String(location.hash).match(/[#&]k=([A-Za-z0-9]+)/);
-    if (m && m[1] !== kToken) { kToken = m[1]; store.set('kalshi', kToken); }
+    const m = String(location.hash).match(/[#&]kalshi=([A-Za-z0-9_-]+)/);
+    if (m) {
+      try {
+        for (const a of KalshiClient.fromLink(m[1])) { kAccts = kAccts.filter(x => x.keyId !== a.keyId); kAccts.push(a); }
+        saveK();
+      } catch {}
+    }
   }
   const listFromHash = h => {
     const raw = decodeURIComponent(String(h || '').replace(/^.*#/, '')).split('&')[0];
-    if (!raw || raw.startsWith('import=') || raw.startsWith('k=')) return null;
+    if (!raw || raw.startsWith('import=') || raw.startsWith('k=') || raw.startsWith('kalshi=')) return null;
     const items = raw.split(',').map(x => x.trim().replace(/^@/, '')).filter(Boolean);
     return items.length && items.every(x => /^(0x[0-9a-fA-F]{40}|[A-Za-z0-9_.-]{1,64})$/.test(x)) ? items : null;
   };
@@ -169,10 +180,10 @@
     const items = listFromHash(location.hash);
     return items && store.get('importedFrom', '') !== items.join(',') ? items : null;   // same link as before: keep manual edits
   })();
-  const shareLink = () => location.origin + location.pathname + '#' + accounts.map(a => a.u || a.w).join(',') + (kToken ? '&k=' + kToken : '');
+  const shareLink = withKalshi => location.origin + location.pathname + '#' + accounts.map(a => a.u || a.w).join(',') + (withKalshi && kAccts.length ? '&kalshi=' + KalshiClient.toLink(kAccts) : '');
   function syncUrl() {
     const names = accounts.map(a => a.u || a.w).join(',');
-    const target = location.pathname + (names || kToken ? '#' + names + (kToken ? '&k=' + kToken : '') : '');
+    const target = location.pathname + (names ? '#' + names : '');   // Kalshi keys never go in the address bar
     if (location.pathname + location.hash !== target) history.replaceState(null, '', target);
     store.set('importedFrom', accounts.map(a => a.u || a.w).join(','));
   }
@@ -236,20 +247,20 @@
     if (cash.status === 'fulfilled') d.cash = cash.value;
     d.error = res.some(x => x.status === 'rejected') ? "Some data didn't load; it will retry." : null;
   }
-  const kalshi = { subs: null, error: null };
+  const kalshi = { subs: null, error: null, byAcct: {} };
   async function loadKalshi() {
-    if (!kToken) { kalshi.subs = null; return; }
-    try {
-      const r = await fetch(KALSHI_URL, { headers: { Authorization: 'Bearer ' + kToken }, cache: 'no-store' });
-      if (r.status === 401) { kalshi.error = 'Kalshi access code not accepted.'; return; }
-      const j = await r.json();
-      if (j.error) throw new Error(j.error);
-      kalshi.subs = j.subaccounts; kalshi.error = null;
-    } catch { kalshi.error = "Kalshi data didn't load; it will retry."; }
+    if (!kAccts.length) { kalshi.subs = null; return; }
+    const errs = [];
+    await Promise.all(kAccts.map(async a => {
+      try { kalshi.byAcct[a.id] = await KalshiClient.summary(a); }
+      catch (e) { errs.push(`${a.nick}: ${e.auth ? 'key not accepted' : "didn't load"}`); }
+    }));
+    kalshi.subs = kAccts.flatMap(a => kalshi.byAcct[a.id] || []);
+    kalshi.error = errs.length ? 'Kalshi ' + errs.join(', ') : null;
   }
   let loading = false;
   async function refresh() {
-    if (loading || (!accounts.length && !kToken)) return;
+    if (loading || (!accounts.length && !kAccts.length)) return;
     loading = true;
     await Promise.all([...accounts.map(a => loadAccount(a.w).catch(() => {})), loadKalshi()]);
     loading = false; updatedAt = Date.now(); render();
@@ -337,7 +348,7 @@
     </section>`;
   }
   const seriesMap = {};
-  const kName = s => `Kalshi · Sub ${s.n}${s.n === 0 ? ' (main)' : ''}`;
+  const kName = s => `${s.nick} · Sub ${s.n}${s.n === 0 ? ' (main)' : ''}`;
   function kalshiStats(s) {
     const since = range === 'all' ? 0 : Date.now() / 1000 - RANGE_SECS[range];
     const sets = [...s.settlements].sort((x, y) => x.ts - y.ts);
@@ -360,13 +371,13 @@
         <div class="t"><div class="a">${esc(a.title)}</div><div class="b">${a.type} <span class="oc ${a.side === 'Yes' ? 'yes' : 'no'}">${a.side}</span> at ${cents(a.price)} · ${ago(a.ts)}</div></div>
         <div class="r"><div class="a">${usd(a.usd)}</div></div></div>`;
   function kalshiCard(s) {
-    const key = 'k' + s.n, posValue = s.positions.reduce((t, p) => t + p.value, 0), { realized, series } = kalshiStats(s);
+    const key = s.accountId + '-' + s.n, posValue = s.positions.reduce((t, p) => t + p.value, 0), { realized, series } = kalshiStats(s);
     seriesMap[key] = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1];
     const acts = [...s.fills.map(f => ({ ...f, kind: 'fill' })), ...s.settlements.map(x => ({ ...x, kind: 'settle' }))].sort((x, y) => y.ts - x.ts);
     return `<section class="col">
       <div class="head"><span class="av" style="background:#0a9b6d">K</span>
-        <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">Kalshi subaccount ${s.n}</div></div></div>
+        <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">Kalshi · subaccount ${s.n}</div></div></div>
       <div class="portfolio"><div class="k">Portfolio</div><div class="big">${usd(s.cash + posValue)}</div></div>
       <div class="stats">
         <div class="stat"><div class="k">Positions</div><div class="v">${usd(posValue)}</div></div>
@@ -390,7 +401,7 @@
   const cardNames = () => [...accounts.map(nameOf), ...(kalshi.subs || []).map(kName)];
   const cardCount = () => cardNames().length;
   const $ = id => document.getElementById(id);
-  const ed = { open: false, results: null, busy: false, msg: '', copied: false };
+  const ed = { open: false, results: null, busy: false, msg: '', copied: false, kbusy: false, kmsg: '' };
   const short = w => w.slice(0, 6) + '…' + w.slice(-4);
   const GAMMA = 'https://gamma-api.polymarket.com';
   // username, @username, profile link, wallet address, or a phone link -> candidate accounts
@@ -434,18 +445,27 @@
       }).join('') : '<div class="hint2">No Polymarket account found.</div>';
     return `<div class="editor">
       <h2>Your accounts</h2>${rows || '<div class="hint2">None yet.</div>'}
-      ${accounts.length ? `<button class="pick" id="copylink" style="margin-top:12px;width:100%;height:42px">${ed.copied ? 'Link copied' : 'Copy link to this list'}</button>
-        <div class="hint2">Open the copied link on another device (or after reinstalling) to get the same accounts.</div>` : ''}
+      ${accounts.length || kAccts.length ? `<button class="pick" data-copy="plain" style="margin-top:12px;width:100%;height:42px">${ed.copied === 'plain' ? 'Link copied' : 'Copy link'}</button>
+        ${kAccts.length ? `<button class="pick" data-copy="kalshi" style="margin-top:8px;width:100%;height:42px;background:var(--chip);color:var(--fg)">${ed.copied === 'kalshi' ? 'Link copied' : 'Copy link with Kalshi keys'}</button>` : ''}
+        <div class="hint2">Open the copied link on another device (or after reinstalling) to get the same accounts.${kAccts.length ? ' The second link also carries your read-only Kalshi keys; only send it to yourself.' : ''}</div>` : ''}
       <h2>Add a Polymarket account</h2>
       <form class="addbox" id="addform"><input id="addq" placeholder="Username, profile link or wallet" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
         <button type="submit">${ed.busy ? '…' : 'Find'}</button></form>
       ${ed.msg ? `<div class="hint2">${esc(ed.msg)}</div>` : ''}
       ${results}
-      <h2>Kalshi</h2>
-      ${kToken ? `<div class="erow"><span class="av" style="background:#0a9b6d">K</span><div class="t"><div class="a">Connected</div>
-          <div class="b">${kalshi.subs ? kalshi.subs.length + ' subaccounts' : 'read-only'}</div></div>
-          <button class="ebtn del" id="kdisconnect" aria-label="Disconnect Kalshi"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`
-        : `<form class="addbox" id="kform"><input id="kcode" placeholder="Kalshi access code" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit">Connect</button></form>`}
+      <h2>Kalshi accounts</h2>
+      ${kAccts.map(k => `<div class="erow"><span class="av" style="background:#0a9b6d">K</span>
+          <div class="t"><div class="a">${esc(k.nick)}</div><div class="b">${kalshi.byAcct[k.id] ? kalshi.byAcct[k.id].length + ' subaccounts' : 'read-only key'}</div></div>
+          <button class="ebtn" data-krename="${k.id}" aria-label="Rename"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 14.5V16h1.5L14 7.5 12.5 6 4 14.5zM12.5 6l1.5-1.5L15.5 6 14 7.5"/></svg></button>
+          <button class="ebtn del" data-kdel="${k.id}" aria-label="Remove"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`).join('')}
+      <form class="kadd" id="kform">
+        <input id="knick" placeholder="Nickname (e.g. Main)" autocomplete="off">
+        <input id="kid" placeholder="API key ID" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <textarea id="kpem" rows="3" placeholder="Private key (read-only key recommended)" autocapitalize="off" spellcheck="false"></textarea>
+        <button type="submit">${ed.kbusy ? 'Checking…' : 'Add Kalshi account'}</button>
+      </form>
+      <div class="hint2">Create a read-only API key in Kalshi → Account → API keys. The key stays on this device; requests are signed here.</div>
+      ${ed.kmsg ? `<div class="hint2" style="color:var(--down)">${esc(ed.kmsg)}</div>` : ''}
     </div>`;
   }
   const listEl = () => document.querySelector('.list');
@@ -479,7 +499,7 @@
     if (active > Math.max(0, names.length - 1)) active = Math.max(0, names.length - 1);
     $('tabs').innerHTML = names.length > 1 ? names.map((n, i) => `<button data-tab="${i}" class="${i === active ? 'on' : ''}">${esc(n)}</button>`).join('') : '';
     $('seg').innerHTML = RANGES.map(([k, l]) => `<button data-range="${k}" class="${k === range ? 'on' : ''}">${l}</button>`).join('');
-    $('updated').textContent = !names.length && !kToken ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) + (kalshi.error ? ' · ' + kalshi.error : '') : 'Loading…';
+    $('updated').textContent = !names.length && !kAccts.length ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) + (kalshi.error ? ' · ' + kalshi.error : '') : 'Loading…';
     $('edit').textContent = ed.open ? 'Done' : accounts.length ? 'Edit' : 'Add';
     $('seg').parentElement.style.display = ed.open ? 'none' : '';
     $('tabs').style.display = ed.open ? 'none' : '';
@@ -521,8 +541,19 @@
   document.addEventListener('submit', async e => {
     if (e.target.id === 'kform') {
       e.preventDefault();
-      const code = $('kcode').value.trim().replace(/^.*[#&]k=/, '');
-      if (/^[A-Za-z0-9]{16,}$/.test(code)) { kToken = code; store.set('kalshi', kToken); syncUrl(); await loadKalshi(); render(); }
+      if (ed.kbusy) return;
+      const acct = { id: KalshiClient.newId(), nick: $('knick').value.trim() || 'Kalshi', keyId: $('kid').value.trim(), pem: $('kpem').value.trim() };
+      if (!acct.pem.includes('BEGIN')) acct.pem = `-----BEGIN PRIVATE KEY-----\n${acct.pem.replace(/\s+/g, '')}\n-----END PRIVATE KEY-----`;
+      const keep = { nick: $('knick').value, kid: $('kid').value, pem: $('kpem').value };
+      ed.kbusy = true; ed.kmsg = ''; render(); Object.assign($('knick'), { value: keep.nick }); $('kid').value = keep.kid; $('kpem').value = keep.pem;
+      try {
+        await KalshiClient.check(acct);
+        kAccts = kAccts.filter(x => x.keyId !== acct.keyId); kAccts.push(acct); saveK();
+        ed.kbusy = false; await loadKalshi(); render();
+      } catch (err) {
+        ed.kbusy = false; ed.kmsg = err.auth ? 'Kalshi did not accept that key. Check the key ID and private key.' : (err.message || "Couldn't reach Kalshi."); render();
+        $('knick').value = keep.nick; $('kid').value = keep.kid; $('kpem').value = keep.pem;
+      }
       return;
     }
     if (e.target.id !== 'addform') return;
@@ -547,14 +578,24 @@
       if (!ed.open) { active = Math.min(active, Math.max(0, accounts.length - 1)); store.set('active', active); render(); refresh(); return; }
       render(); return;
     }
-    if (b.id === 'kdisconnect') {
-      if (confirm('Disconnect Kalshi on this device?')) { kToken = ''; store.set('kalshi', ''); kalshi.subs = null; syncUrl(); render(); }
+    if (b.dataset.copy) {
+      const link = shareLink(b.dataset.copy === 'kalshi');
+      try { await navigator.clipboard.writeText(link); ed.copied = b.dataset.copy; render(); setTimeout(() => { ed.copied = false; render(); }, 2500); }
+      catch { prompt('Copy this link:', link); }
       return;
     }
-    if (b.id === 'copylink') {
-      const link = shareLink();
-      try { await navigator.clipboard.writeText(link); ed.copied = true; render(); setTimeout(() => { ed.copied = false; render(); }, 2500); }
-      catch { prompt('Copy this link:', link); }
+    if (b.dataset.krename) {
+      const k = kAccts.find(x => x.id === b.dataset.krename);
+      const n = (prompt('Nickname for this Kalshi account:', k.nick) || '').trim();
+      if (n) { k.nick = n; saveK(); (kalshi.byAcct[k.id] || []).forEach(x => { x.nick = n; }); render(); }
+      return;
+    }
+    if (b.dataset.kdel) {
+      const k = kAccts.find(x => x.id === b.dataset.kdel);
+      if (confirm(`Remove the Kalshi account "${k.nick}" from this device?`)) {
+        kAccts = kAccts.filter(x => x.id !== k.id); saveK(); delete kalshi.byAcct[k.id];
+        kalshi.subs = kAccts.flatMap(a => kalshi.byAcct[a.id] || []); render();
+      }
       return;
     }
     if (b.dataset.up || b.dataset.down) {
@@ -598,7 +639,7 @@
       if (list.length) { accounts = list; saveAccounts(); }
       render(); refresh();
     });
-  } else { if (accounts.length || kToken) syncUrl(); render(); refresh(); }
+  } else { if (accounts.length) syncUrl(); render(); refresh(); }
   setInterval(() => { if (!document.hidden) refresh(); }, 60000);
   setInterval(() => { if (updatedAt && !ed.open) $('updated').textContent = 'Updated ' + ago(updatedAt / 1000); }, 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - updatedAt > 20000) refresh(); });
