@@ -272,7 +272,11 @@
   async function refresh() {
     if (loading || (!accounts.length && !kAccts.length)) return;
     loading = true;
-    await Promise.all([...shownAccounts().map(a => loadAccount(a.w).catch(() => {})), loadKalshi()]);
+    const firstLoad = !updatedAt;
+    await Promise.all([
+      ...shownAccounts().map(a => loadAccount(a.w).catch(() => {}).then(() => { if (firstLoad) renderCard('p:' + a.w); })),
+      loadKalshi().then(() => { if (firstLoad && kalshi.subs?.length) render(); }),
+    ]);
     loading = false; updatedAt = Date.now(); render();
   }
 
@@ -334,7 +338,7 @@
     const d = data[a.w] || {}, { change, series, rewardsInRange } = pnlStats(d.pnl, d.rewards), pos = d.positions || [];
     seriesMap[a.w] = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1];
-    return `<section class="col">
+    return `<section class="col" data-ck="p:${a.w}">
       <div class="head"><a href="${profileUrl(a)}">${avatar(a)}</a>
         <div class="who"><a class="n" href="${profileUrl(a)}">${esc(nameOf(a))}</a><div class="w">${a.w.slice(0, 6)}…${a.w.slice(-4)}</div></div></div>
       <div class="portfolio"><div class="k">Portfolio</div><div class="big">${d.value == null || d.cash == null ? '…' : usd(d.value + d.cash)}</div></div>
@@ -407,7 +411,7 @@
     seriesMap[key] = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1];
     const acts = [...s.fills.map(f => ({ ...f, kind: 'fill' })), ...s.settlements.map(x => ({ ...x, kind: 'settle' }))].sort((x, y) => y.ts - x.ts);
-    return `<section class="col">
+    return `<section class="col" data-ck="k:${s.accountId}:${s.n}">
       <div class="head"><span class="av" style="background:#0a9b6d">K</span>
         <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">${esc(KalshiClient.subCaption(kAcctOf(s), s.n))}</div></div></div>
       <div class="portfolio"><div class="k">Portfolio</div><div class="big">${usd(s.cash + posValue)}</div></div>
@@ -512,6 +516,14 @@
       <div class="hint2">Create a read-only API key in Kalshi → Account → API keys. The key stays on this device; requests are signed here. Each subaccount appears in Accounts above.</div>
       ${ed.kmsg ? `<div class="hint2" style="color:var(--down)">${esc(ed.kmsg)}</div>` : ''}
     </div>`;
+  }
+  function renderCard(ck) {
+    if (ed.open) return;
+    const el = document.querySelector(`.list > [data-ck="${ck}"]`);
+    if (!el) return render();
+    const html = ck.startsWith('p:') ? card(accounts.find(a => 'p:' + a.w === ck)) : kalshiCard((kalshi.subs || []).find(x => `k:${x.accountId}:${x.n}` === ck));
+    const t = document.createElement('template'); t.innerHTML = html.trim();
+    el.replaceWith(t.content.firstElementChild);
   }
   const listEl = () => document.querySelector('.list');
   let jumping = false;
@@ -727,11 +739,16 @@
       await Promise.all(accounts.map(async a => { try { data[a.w].pnl = (await get(`/user-pnl?user=${a.w}&interval=${range}`))?.points || []; } catch { data[a.w].pnl = []; } }));
       render();
     } else if (b.id === 'refresh') { b.style.opacity = '.5'; await refresh(); b.style.opacity = ''; }
-    else if (b.dataset.allpos) { ui.allPos[b.dataset.allpos] = !ui.allPos[b.dataset.allpos]; render(); }
+    else if (b.dataset.allpos) {
+      const k = b.dataset.allpos; ui.allPos[k] = !ui.allPos[k];
+      renderCard(k.startsWith('0x') ? 'p:' + k : 'k:' + k.replace(/-(\d+)$/, ':$1'));
+    }
     else if (b.dataset.moreact) {
-      const w = b.dataset.moreact; ui.moreAct[w] = !ui.moreAct[w];
-      try { data[w].activity = await get(`/activity?user=${w}&limit=${ui.moreAct[w] ? 40 : ROWS + 1}`); } catch {}
-      render();
+      const k = b.dataset.moreact; ui.moreAct[k] = !ui.moreAct[k];
+      if (!k.startsWith('0x')) { renderCard('k:' + k.replace(/-(\d+)$/, ':$1')); return; }   // Kalshi activity is already loaded
+      if (ui.moreAct[k]) { b.textContent = 'Loading…'; b.disabled = true; }
+      try { data[k].activity = await get(`/activity?user=${k}&limit=${ui.moreAct[k] ? 40 : ROWS + 1}`); } catch {}
+      renderCard('p:' + k);
     }
   });
 
