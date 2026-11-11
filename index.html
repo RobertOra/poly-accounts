@@ -182,9 +182,10 @@
     const items = listFromHash(location.hash);
     return items && store.get('importedFrom', '') !== items.join(',') ? items : null;   // same link as before: keep manual edits
   })();
-  const shareLink = withKalshi => location.origin + location.pathname + '#' + accounts.map(a => a.u || a.w).join(',') + (withKalshi && kAccts.length ? '&kalshi=' + KalshiClient.toLink(kAccts) : '');
+  const pmInOrder = () => { try { return allItems().filter(x => x.type === 'pm').map(x => x.a); } catch { return accounts; } };
+  const shareLink = withKalshi => location.origin + location.pathname + '#' + pmInOrder().map(a => a.u || a.w).join(',') + (withKalshi && kAccts.length ? '&kalshi=' + KalshiClient.toLink(kAccts) : '');
   function syncUrl() {
-    const names = accounts.map(a => a.u || a.w).join(',');
+    const names = pmInOrder().map(a => a.u || a.w).join(',');
     const target = location.pathname + (names ? '#' + names : '');   // Kalshi keys never go in the address bar
     if (location.pathname + location.hash !== target) history.replaceState(null, '', target);
     store.set('importedFrom', accounts.map(a => a.u || a.w).join(','));
@@ -352,6 +353,23 @@
   const seriesMap = {};
   const EYE = '<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.5"/></svg>', EYEOFF = '<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l14 14M8.2 4.8A8.6 8.6 0 0 1 10 4.5c5.5 0 8.5 5.5 8.5 5.5a14 14 0 0 1-2.6 3.3M5.4 6.4A14 14 0 0 0 1.5 10S4.5 15.5 10 15.5a8 8 0 0 0 3.4-.8"/></svg>', PEN = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 14.5V16h1.5L14 7.5 12.5 6 4 14.5zM12.5 6l1.5-1.5L15.5 6 14 7.5"/></svg>';
   // what the cards show: hidden Polymarket accounts (a.h) and hidden Kalshi subaccounts stay saved but out of view
+  let cardOrder = store.get('cardOrder', []);
+  const kAcctOf = s => kAccts.find(k => k.id === s.accountId);
+  function allItems() {
+    const items = [
+      ...accounts.map(a => ({ key: 'p:' + a.w, type: 'pm', a, hidden: !!a.h, label: nameOf(a), sub: 'Polymarket' })),
+      ...(kalshi.subs || []).map(s => ({ key: `k:${s.accountId}:${s.n}`, type: 'k', s, hidden: KalshiClient.isHidden(kAcctOf(s), s.n), label: kName(s), sub: `Kalshi · ${s.nick} · sub ${s.n}` })),
+    ];
+    const pos = new Map(cardOrder.map((k, i) => [k, i]));
+    return items.map((x, i) => ({ x, i })).sort((u, v) => (pos.get(u.x.key) ?? 1e6 + u.i) - (pos.get(v.x.key) ?? 1e6 + v.i)).map(u => u.x);
+  }
+  const shownItems = () => allItems().filter(x => !x.hidden);
+  function moveCard(key, dir) {
+    const keys = allItems().map(x => x.key), i = keys.indexOf(key), j = i + dir;
+    if (i < 0 || j < 0 || j >= keys.length) return;
+    [keys[i], keys[j]] = [keys[j], keys[i]];
+    cardOrder = keys; store.set('cardOrder', cardOrder);
+  }
   const shownAccounts = () => accounts.filter(a => !a.h);
   const shownSubs = () => (kalshi.subs || []).filter(s => !KalshiClient.isHidden(kAccts.find(k => k.id === s.accountId), s.n));
   const hiddenCount = () => accounts.filter(a => a.h).length + kAccts.reduce((t, k) => t + (k.hiddenSubs?.length || 0), 0);
@@ -405,7 +423,7 @@
     </section>`;
   }
   // all cards in display order: Polymarket accounts, then Kalshi subaccounts
-  const cardNames = () => [...shownAccounts().map(nameOf), ...shownSubs().map(kName)];
+  const cardNames = () => shownItems().map(x => x.label);
   const cardCount = () => cardNames().length;
   const $ = id => document.getElementById(id);
   const ed = { open: false, results: null, busy: false, msg: '', copied: false, kbusy: false, kmsg: '' };
@@ -443,8 +461,6 @@
     const rows = accounts.map((a, i) => `<div class="erow ${a.h ? 'hidden' : ''}">${avatar(a)}
         <div class="t"><div class="a">${esc(nameOf(a))}</div><div class="b">${short(a.w)}${a.h ? ' · hidden' : ''}</div></div>
         <button class="ebtn" data-hide="${i}" aria-label="${a.h ? 'Show' : 'Hide'}">${a.h ? EYEOFF : EYE}</button>
-        <button class="ebtn" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l5-5 5 5"/></svg></button>
-        <button class="ebtn" data-down="${i}" ${i === accounts.length - 1 ? 'disabled' : ''} aria-label="Move down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7.5l5 5 5-5"/></svg></button>
         <button class="ebtn del" data-del="${i}" aria-label="Remove"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`).join('');
     const results = ed.results == null ? '' : ed.results.length ? ed.results.map(a => {
         const have = accounts.some(x => x.w === a.w);
@@ -452,7 +468,12 @@
           <button class="pick" data-pick="${a.w}" ${have ? 'disabled' : ''}>${have ? 'Added' : 'Add'}</button></div>`;
       }).join('') : '<div class="hint2">No Polymarket account found.</div>';
     return `<div class="editor">
-      <h2>Your accounts</h2>${rows || '<div class="hint2">None yet.</div>'}
+      ${allItems().length > 1 ? `<h2>Order</h2>${allItems().map((x, i, all) => `<div class="erow ${x.hidden ? 'hidden' : ''}">
+          ${x.type === 'pm' ? avatar(x.a) : '<span class="av" style="background:#0a9b6d">K</span>'}
+          <div class="t"><div class="a">${esc(x.label)}</div><div class="b">${esc(x.sub)}${x.hidden ? ' · hidden' : ''}</div></div>
+          <button class="ebtn" data-mv="${x.key}|-1" ${i === 0 ? 'disabled' : ''} aria-label="Move up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l5-5 5 5"/></svg></button>
+          <button class="ebtn" data-mv="${x.key}|1" ${i === all.length - 1 ? 'disabled' : ''} aria-label="Move down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7.5l5 5 5-5"/></svg></button></div>`).join('')}` : ''}
+      <h2>Polymarket accounts</h2>${rows || '<div class="hint2">None yet.</div>'}
       ${accounts.length || kAccts.length ? `<button class="pick" data-copy="plain" style="margin-top:12px;width:100%;height:42px">${ed.copied === 'plain' ? 'Link copied' : 'Copy link'}</button>
         ${kAccts.length ? `<button class="pick" data-copy="kalshi" style="margin-top:8px;width:100%;height:42px;background:var(--chip);color:var(--fg)">${ed.copied === 'kalshi' ? 'Link copied' : 'Copy link with Kalshi keys'}</button>` : ''}
         <div class="hint2">Open the copied link on another device (or after reinstalling) to get the same accounts.${kAccts.length ? ' The second link also carries your read-only Kalshi keys; only send it to yourself.' : ''}</div>` : ''}
@@ -517,7 +538,7 @@
     $('tabs').style.display = ed.open ? 'none' : '';
     $('refresh').style.display = ed.open ? 'none' : '';
     if (ed.open) { $('updated').textContent = ''; $('main').innerHTML = editor(); return; }
-    $('main').innerHTML = names.length ? `<div class="list">${shownAccounts().map(card).join('')}${shownSubs().map(kalshiCard).join('')}</div>`
+    $('main').innerHTML = names.length ? `<div class="list">${shownItems().map(x => (x.type === 'pm' ? card(x.a) : kalshiCard(x.s))).join('')}</div>`
       : `<div class="none"><h2>No accounts yet</h2>Tap <b>Add</b> at the top to add accounts by username, or paste the phone link from the Chrome extension:
           <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#import=…"></textarea>
           <button class="go" id="usepaste">Add accounts</button><div id="pasteerr" class="err"></div></div>`;
@@ -625,10 +646,7 @@
       }
       return;
     }
-    if (b.dataset.up || b.dataset.down) {
-      const i = +(b.dataset.up ?? b.dataset.down), j = b.dataset.up ? i - 1 : i + 1;
-      [accounts[i], accounts[j]] = [accounts[j], accounts[i]]; saveAccounts(); render(); return;
-    }
+    if (b.dataset.mv) { const [key, d] = b.dataset.mv.split('|'); moveCard(key, +d); syncUrl(); render(); return; }
     if (b.dataset.del) {
       const a = accounts[+b.dataset.del];
       if (confirm(`Remove ${nameOf(a)} from this list?`)) { accounts.splice(+b.dataset.del, 1); delete data[a.w]; saveAccounts(); render(); }
