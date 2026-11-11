@@ -57,6 +57,8 @@
   .drow.settle { transition:transform .15s ease; }
   .drow.dragging { z-index:3; box-shadow:0 8px 24px rgba(0,0,0,.18); border-radius:10px; transition:none; }
   .ebtn-space { width:34px; flex:none; }
+  .kmenu { display:flex; gap:8px; padding:4px 0 10px 64px; }
+  .kmenu .pick { height:34px; padding:0 12px; font-size:13px; background:var(--chip); color:var(--fg); }
   .ebtn.del { color:var(--down); }
   .addbox { display:flex; gap:8px; margin-top:8px; }
   .kadd { display:grid; gap:8px; margin-top:8px; }
@@ -362,7 +364,7 @@
   function allItems() {
     const items = [
       ...accounts.map(a => ({ key: 'p:' + a.w, type: 'pm', a, hidden: !!a.h, label: nameOf(a), sub: 'Polymarket' })),
-      ...(kalshi.subs || []).map(s => ({ key: `k:${s.accountId}:${s.n}`, type: 'k', s, hidden: KalshiClient.isHidden(kAcctOf(s), s.n), label: kName(s), sub: `Kalshi · ${s.nick} · sub ${s.n}` })),
+      ...(kalshi.subs || []).map(s => ({ key: `k:${s.accountId}:${s.n}`, type: 'k', s, hidden: KalshiClient.isHidden(kAcctOf(s), s.n), label: kName(s), sub: KalshiClient.subCaption(kAcctOf(s), s.n) })),
     ];
     const pos = new Map(cardOrder.map((k, i) => [k, i]));
     return items.map((x, i) => ({ x, i })).sort((u, v) => (pos.get(u.x.key) ?? 1e6 + u.i) - (pos.get(v.x.key) ?? 1e6 + v.i)).map(u => u.x);
@@ -406,7 +408,7 @@
     const acts = [...s.fills.map(f => ({ ...f, kind: 'fill' })), ...s.settlements.map(x => ({ ...x, kind: 'settle' }))].sort((x, y) => y.ts - x.ts);
     return `<section class="col">
       <div class="head"><span class="av" style="background:#0a9b6d">K</span>
-        <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">Kalshi · ${esc(s.nick)} · sub ${s.n}</div></div></div>
+        <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">${esc(KalshiClient.subCaption(kAcctOf(s), s.n))}</div></div></div>
       <div class="portfolio"><div class="k">Portfolio</div><div class="big">${usd(s.cash + posValue)}</div></div>
       <div class="stats">
         <div class="stat"><div class="k">Positions</div><div class="v">${usd(posValue)}</div></div>
@@ -430,7 +432,7 @@
   const cardNames = () => shownItems().map(x => x.label);
   const cardCount = () => cardNames().length;
   const $ = id => document.getElementById(id);
-  const ed = { open: false, results: null, busy: false, msg: '', copied: false, kbusy: false, kmsg: '' };
+  const ed = { open: false, results: null, busy: false, msg: '', copied: false, kbusy: false, kmsg: '', kmenu: null };
   const short = w => w.slice(0, 6) + '…' + w.slice(-4);
   const GAMMA = 'https://gamma-api.polymarket.com';
   // username, @username, profile link, wallet address, or a phone link -> candidate accounts
@@ -474,10 +476,11 @@
       const k = kAcctOf(x.s), n = x.s.n;
       return `<div class="erow drow ${x.hidden ? 'hidden' : ''}" data-key="${x.key}">
           <span class="handle" aria-label="Drag to reorder"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5h12M4 10h12M4 13.5h12"/></svg></span><span class="av" style="background:#0a9b6d">K</span>
-          <div class="t"><div class="a">${esc(x.label)}</div><div class="b">Kalshi · ${esc(k.nick)} · sub ${n}${n === 0 ? ' (primary)' : ''}${x.hidden ? ' · hidden' : ''}</div></div>
-          <button class="ebtn" data-ksubrename="${k.id}:${n}" aria-label="Rename">${PEN}</button>
+          <div class="t"><div class="a">${esc(x.label)}</div><div class="b">${esc(KalshiClient.subCaption(k, n))}${x.hidden ? ' · hidden' : ''}</div></div>
+          <button class="ebtn" ${n === 0 ? `data-kmenu="${k.id}"` : `data-ksubrename="${k.id}:${n}"`} aria-label="Rename">${PEN}</button>
           <button class="ebtn" data-ksubhide="${k.id}:${n}" aria-label="${x.hidden ? 'Show' : 'Hide'}">${x.hidden ? EYEOFF : EYE}</button>
-          ${n === 0 ? `<button class="ebtn del" data-kdel="${k.id}" aria-label="Remove Kalshi account"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button>` : '<span class="ebtn-space"></span>'}</div>`;
+          ${n === 0 ? `<button class="ebtn del" data-kdel="${k.id}" aria-label="Remove Kalshi account"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button>` : '<span class="ebtn-space"></span>'}</div>
+        ${n === 0 && ed.kmenu === k.id ? `<div class="kmenu"><button class="pick" data-krename="${k.id}">Rename Kalshi account</button><button class="pick" data-ksubrename="${k.id}:0">Rename this subaccount</button></div>` : ''}`;
     };
     const results = ed.results == null ? '' : ed.results.length ? ed.results.map(a => {
         const have = accounts.some(x => x.w === a.w);
@@ -488,7 +491,7 @@
       <h2>Accounts</h2>
       <div class="order">${items.map(row).join('') || '<div class="hint2">None yet.</div>'}</div>
       ${loadingK.map(k => `<div class="erow"><span class="av" style="background:#0a9b6d">K</span>
-          <div class="t"><div class="a">${esc(k.nick)}</div><div class="b">Kalshi · loading subaccounts…</div></div>
+          <div class="t"><div class="a">${esc(k.nick || 'Kalshi')}</div><div class="b">Kalshi · loading subaccounts…</div></div>
           <button class="ebtn del" data-kdel="${k.id}" aria-label="Remove Kalshi account"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`).join('')}
       ${accounts.length || kAccts.length ? `<button class="pick" data-copy="plain" style="margin-top:12px;width:100%;height:42px">${ed.copied === 'plain' ? 'Link copied' : 'Copy link'}</button>
         ${kAccts.length ? `<button class="pick" data-copy="kalshi" style="margin-top:8px;width:100%;height:42px;background:var(--chip);color:var(--fg)">${ed.copied === 'kalshi' ? 'Link copied' : 'Copy link with Kalshi keys'}</button>` : ''}
@@ -500,7 +503,7 @@
       ${results}
       <h2>Add a Kalshi account</h2>
       <form class="kadd" id="kform">
-        <input id="knick" placeholder="Nickname (e.g. Main)" autocomplete="off">
+        <input id="knick" placeholder="Nickname (optional, e.g. Main)" autocomplete="off">
         <input id="kid" placeholder="API key ID" autocomplete="off" autocapitalize="off" spellcheck="false">
         <textarea id="kpem" rows="3" placeholder="Private key (read-only key recommended)" autocapitalize="off" spellcheck="false"></textarea>
         <button type="submit">${ed.kbusy ? 'Checking…' : 'Add Kalshi account'}</button>
@@ -583,7 +586,7 @@
     if (e.target.id === 'kform') {
       e.preventDefault();
       if (ed.kbusy) return;
-      const acct = { id: KalshiClient.newId(), nick: $('knick').value.trim() || 'Kalshi', keyId: $('kid').value.trim(), pem: $('kpem').value.trim() };
+      const acct = { id: KalshiClient.newId(), nick: $('knick').value.trim(), keyId: $('kid').value.trim(), pem: $('kpem').value.trim() };
       if (!acct.pem.includes('BEGIN')) acct.pem = `-----BEGIN PRIVATE KEY-----\n${acct.pem.replace(/\s+/g, '')}\n-----END PRIVATE KEY-----`;
       const keep = { nick: $('knick').value, kid: $('kid').value, pem: $('kpem').value };
       ed.kbusy = true; ed.kmsg = ''; render(); Object.assign($('knick'), { value: keep.nick }); $('kid').value = keep.kid; $('kpem').value = keep.pem;
@@ -675,22 +678,25 @@
       if (b.dataset.ksubhide) {
         k.hiddenSubs = KalshiClient.isHidden(k, sn) ? k.hiddenSubs.filter(x => x !== sn) : [...(k.hiddenSubs || []), sn];
       } else {
-        const name = prompt(`Name for ${k.nick} · Sub ${sn} (leave empty for the default):`, k.subNames?.[sn] || '');
+        ed.kmenu = null;
+      const name = prompt(`Name for ${KalshiClient.subLabel({ ...k, subNames: {} }, sn)} (leave empty for the default):`, k.subNames?.[sn] || '');
         if (name === null) return;
         k.subNames = { ...(k.subNames || {}) };
         if (name.trim()) k.subNames[sn] = name.trim(); else delete k.subNames[sn];
       }
       saveK(); render(); return;
     }
+    if (b.dataset.kmenu) { ed.kmenu = ed.kmenu === b.dataset.kmenu ? null : b.dataset.kmenu; render(); return; }
     if (b.dataset.krename) {
       const k = kAccts.find(x => x.id === b.dataset.krename);
-      const n = (prompt('Nickname for this Kalshi account:', k.nick) || '').trim();
-      if (n) { k.nick = n; saveK(); (kalshi.byAcct[k.id] || []).forEach(x => { x.nick = n; }); render(); }
+      const n = prompt('Nickname for this Kalshi account (leave empty for none):', k.nick || '');
+      if (n === null) return;
+      k.nick = n.trim(); saveK(); (kalshi.byAcct[k.id] || []).forEach(x => { x.nick = k.nick; }); ed.kmenu = null; render();
       return;
     }
     if (b.dataset.kdel) {
       const k = kAccts.find(x => x.id === b.dataset.kdel);
-      if (confirm(`Remove the Kalshi account "${k.nick}" and all its subaccounts from this device?`)) {
+      if (confirm(`Remove the Kalshi account${k.nick ? ` "${k.nick}"` : ''} and all its subaccounts from this device?`)) {
         kAccts = kAccts.filter(x => x.id !== k.id); saveK(); delete kalshi.byAcct[k.id];
         kalshi.subs = kAccts.flatMap(a => kalshi.byAcct[a.id] || []); render();
       }

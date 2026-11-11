@@ -117,13 +117,15 @@ var KalshiClient = (() => {
   const toLink = accts => b64url(JSON.stringify(accts.map(a => ({ n: a.nick, k: a.keyId, p: String(a.pem).replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''),
     ...(a.subNames && Object.keys(a.subNames).length ? { s: a.subNames } : {}), ...(a.hiddenSubs?.length ? { h: a.hiddenSubs } : {}) }))));
   const fromLink = s => JSON.parse(unb64url(s)).filter(a => a.k && a.p).map(a => ({
-    id: 'k' + Math.random().toString(36).slice(2, 9), nick: a.n || 'Kalshi', keyId: a.k, pem: `-----BEGIN PRIVATE KEY-----\n${a.p}\n-----END PRIVATE KEY-----`,
+    id: 'k' + Math.random().toString(36).slice(2, 9), nick: a.n || '', keyId: a.k, pem: `-----BEGIN PRIVATE KEY-----\n${a.p}\n-----END PRIVATE KEY-----`,
     subNames: a.s || {}, hiddenSubs: a.h || [],
   }));
   // card label for a subaccount: its own name if renamed, else "Nick · Sub n"
   const subLabel = (acct, n) => acct?.subNames?.[n] || `${acct?.nick || 'Kalshi'} · Sub ${n}${n === 0 ? ' (primary)' : ''}`;
+  // "Kalshi · Main · sub 1", or "Kalshi · sub 1" when the account has no nickname
+  const subCaption = (acct, n) => `Kalshi${acct?.nick ? ' · ' + acct.nick : ''} · sub ${n}${n === 0 ? ' (primary)' : ''}`;
   const isHidden = (acct, n) => !!acct?.hiddenSubs?.includes(n);
   const newId = () => 'k' + Math.random().toString(36).slice(2, 9);
 
-  return { summary, check, toLink, fromLink, newId, subLabel, isHidden };
+  return { summary, check, toLink, fromLink, newId, subLabel, subCaption, isHidden };
 })();
