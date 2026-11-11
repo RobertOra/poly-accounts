@@ -51,6 +51,8 @@
   .erow .t .b { font-size:12px; color:var(--faint); }
   .ebtn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); background:var(--chip); }
   .ebtn:disabled { opacity:.35; }
+  .erow.hidden .av, .erow.hidden .t { opacity:.45; }
+  .erow.sub { padding-left:44px; }
   .ebtn.del { color:var(--down); }
   .addbox { display:flex; gap:8px; margin-top:8px; }
   .kadd { display:grid; gap:8px; margin-top:8px; }
@@ -262,7 +264,7 @@
   async function refresh() {
     if (loading || (!accounts.length && !kAccts.length)) return;
     loading = true;
-    await Promise.all([...accounts.map(a => loadAccount(a.w).catch(() => {})), loadKalshi()]);
+    await Promise.all([...shownAccounts().map(a => loadAccount(a.w).catch(() => {})), loadKalshi()]);
     loading = false; updatedAt = Date.now(); render();
   }
 
@@ -348,7 +350,12 @@
     </section>`;
   }
   const seriesMap = {};
-  const kName = s => `${s.nick} · Sub ${s.n}${s.n === 0 ? ' (primary)' : ''}`;
+  const EYE = '<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.5"/></svg>', EYEOFF = '<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3l14 14M8.2 4.8A8.6 8.6 0 0 1 10 4.5c5.5 0 8.5 5.5 8.5 5.5a14 14 0 0 1-2.6 3.3M5.4 6.4A14 14 0 0 0 1.5 10S4.5 15.5 10 15.5a8 8 0 0 0 3.4-.8"/></svg>', PEN = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 14.5V16h1.5L14 7.5 12.5 6 4 14.5zM12.5 6l1.5-1.5L15.5 6 14 7.5"/></svg>';
+  // what the cards show: hidden Polymarket accounts (a.h) and hidden Kalshi subaccounts stay saved but out of view
+  const shownAccounts = () => accounts.filter(a => !a.h);
+  const shownSubs = () => (kalshi.subs || []).filter(s => !KalshiClient.isHidden(kAccts.find(k => k.id === s.accountId), s.n));
+  const hiddenCount = () => accounts.filter(a => a.h).length + kAccts.reduce((t, k) => t + (k.hiddenSubs?.length || 0), 0);
+  const kName = s => KalshiClient.subLabel(kAccts.find(k => k.id === s.accountId), s.n);
   function kalshiStats(s) {
     const since = range === 'all' ? 0 : Date.now() / 1000 - RANGE_SECS[range];
     const sets = [...s.settlements].sort((x, y) => x.ts - y.ts);
@@ -377,7 +384,7 @@
     const acts = [...s.fills.map(f => ({ ...f, kind: 'fill' })), ...s.settlements.map(x => ({ ...x, kind: 'settle' }))].sort((x, y) => y.ts - x.ts);
     return `<section class="col">
       <div class="head"><span class="av" style="background:#0a9b6d">K</span>
-        <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">Kalshi · subaccount ${s.n}</div></div></div>
+        <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">Kalshi · ${esc(s.nick)} · sub ${s.n}</div></div></div>
       <div class="portfolio"><div class="k">Portfolio</div><div class="big">${usd(s.cash + posValue)}</div></div>
       <div class="stats">
         <div class="stat"><div class="k">Positions</div><div class="v">${usd(posValue)}</div></div>
@@ -398,7 +405,7 @@
     </section>`;
   }
   // all cards in display order: Polymarket accounts, then Kalshi subaccounts
-  const cardNames = () => [...accounts.map(nameOf), ...(kalshi.subs || []).map(kName)];
+  const cardNames = () => [...shownAccounts().map(nameOf), ...shownSubs().map(kName)];
   const cardCount = () => cardNames().length;
   const $ = id => document.getElementById(id);
   const ed = { open: false, results: null, busy: false, msg: '', copied: false, kbusy: false, kmsg: '' };
@@ -433,8 +440,9 @@
     return out;
   }
   function editor() {
-    const rows = accounts.map((a, i) => `<div class="erow">${avatar(a)}
-        <div class="t"><div class="a">${esc(nameOf(a))}</div><div class="b">${short(a.w)}</div></div>
+    const rows = accounts.map((a, i) => `<div class="erow ${a.h ? 'hidden' : ''}">${avatar(a)}
+        <div class="t"><div class="a">${esc(nameOf(a))}</div><div class="b">${short(a.w)}${a.h ? ' · hidden' : ''}</div></div>
+        <button class="ebtn" data-hide="${i}" aria-label="${a.h ? 'Show' : 'Hide'}">${a.h ? EYEOFF : EYE}</button>
         <button class="ebtn" data-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Move up"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5l5-5 5 5"/></svg></button>
         <button class="ebtn" data-down="${i}" ${i === accounts.length - 1 ? 'disabled' : ''} aria-label="Move down"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7.5l5 5 5-5"/></svg></button>
         <button class="ebtn del" data-del="${i}" aria-label="Remove"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`).join('');
@@ -457,7 +465,11 @@
       ${kAccts.map(k => `<div class="erow"><span class="av" style="background:#0a9b6d">K</span>
           <div class="t"><div class="a">${esc(k.nick)}</div><div class="b">${kalshi.byAcct[k.id] ? kalshi.byAcct[k.id].length + ' subaccounts' : 'read-only key'}</div></div>
           <button class="ebtn" data-krename="${k.id}" aria-label="Rename"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 14.5V16h1.5L14 7.5 12.5 6 4 14.5zM12.5 6l1.5-1.5L15.5 6 14 7.5"/></svg></button>
-          <button class="ebtn del" data-kdel="${k.id}" aria-label="Remove"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`).join('')}
+          <button class="ebtn del" data-kdel="${k.id}" aria-label="Remove"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>
+        ${(kalshi.byAcct[k.id] || []).map(sub => { const hid = KalshiClient.isHidden(k, sub.n); return `<div class="erow sub ${hid ? 'hidden' : ''}">
+          <div class="t"><div class="a">${esc(KalshiClient.subLabel(k, sub.n))}</div><div class="b">Sub ${sub.n} · ${usd(sub.cash)} cash${hid ? ' · hidden' : ''}</div></div>
+          <button class="ebtn" data-ksubrename="${k.id}:${sub.n}" aria-label="Rename subaccount">${PEN}</button>
+          <button class="ebtn" data-ksubhide="${k.id}:${sub.n}" aria-label="${hid ? 'Show' : 'Hide'}">${hid ? EYEOFF : EYE}</button></div>`; }).join('')}`).join('')}
       <form class="kadd" id="kform">
         <input id="knick" placeholder="Nickname (e.g. Main)" autocomplete="off">
         <input id="kid" placeholder="API key ID" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -499,13 +511,13 @@
     if (active > Math.max(0, names.length - 1)) active = Math.max(0, names.length - 1);
     $('tabs').innerHTML = names.length > 1 ? names.map((n, i) => `<button data-tab="${i}" class="${i === active ? 'on' : ''}">${esc(n)}</button>`).join('') : '';
     $('seg').innerHTML = RANGES.map(([k, l]) => `<button data-range="${k}" class="${k === range ? 'on' : ''}">${l}</button>`).join('');
-    $('updated').textContent = !names.length && !kAccts.length ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) + (kalshi.error ? ' · ' + kalshi.error : '') : 'Loading…';
+    $('updated').textContent = !names.length && !kAccts.length ? '' : (updatedAt ? 'Updated ' + ago(updatedAt / 1000) + (kalshi.error ? ' · ' + kalshi.error : '') : 'Loading…') + (hiddenCount() ? ` · ${hiddenCount()} hidden` : '');
     $('edit').textContent = ed.open ? 'Done' : accounts.length ? 'Edit' : 'Add';
     $('seg').parentElement.style.display = ed.open ? 'none' : '';
     $('tabs').style.display = ed.open ? 'none' : '';
     $('refresh').style.display = ed.open ? 'none' : '';
     if (ed.open) { $('updated').textContent = ''; $('main').innerHTML = editor(); return; }
-    $('main').innerHTML = names.length ? `<div class="list">${accounts.map(card).join('')}${(kalshi.subs || []).map(kalshiCard).join('')}</div>`
+    $('main').innerHTML = names.length ? `<div class="list">${shownAccounts().map(card).join('')}${shownSubs().map(kalshiCard).join('')}</div>`
       : `<div class="none"><h2>No accounts yet</h2>Tap <b>Add</b> at the top to add accounts by username, or paste the phone link from the Chrome extension:
           <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#import=…"></textarea>
           <button class="go" id="usepaste">Add accounts</button><div id="pasteerr" class="err"></div></div>`;
@@ -583,6 +595,21 @@
       try { await navigator.clipboard.writeText(link); ed.copied = b.dataset.copy; render(); setTimeout(() => { ed.copied = false; render(); }, 2500); }
       catch { prompt('Copy this link:', link); }
       return;
+    }
+    if (b.dataset.hide) {
+      const a = accounts[+b.dataset.hide]; a.h = !a.h; if (!a.h) delete a.h; saveAccounts(); render(); return;
+    }
+    if (b.dataset.ksubhide || b.dataset.ksubrename) {
+      const [id, n] = (b.dataset.ksubhide || b.dataset.ksubrename).split(':'), k = kAccts.find(x => x.id === id), sn = +n;
+      if (b.dataset.ksubhide) {
+        k.hiddenSubs = KalshiClient.isHidden(k, sn) ? k.hiddenSubs.filter(x => x !== sn) : [...(k.hiddenSubs || []), sn];
+      } else {
+        const name = prompt(`Name for ${k.nick} · Sub ${sn} (leave empty for the default):`, k.subNames?.[sn] || '');
+        if (name === null) return;
+        k.subNames = { ...(k.subNames || {}) };
+        if (name.trim()) k.subNames[sn] = name.trim(); else delete k.subNames[sn];
+      }
+      saveK(); render(); return;
     }
     if (b.dataset.krename) {
       const k = kAccts.find(x => x.id === b.dataset.krename);

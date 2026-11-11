@@ -1,7 +1,7 @@
 // Kalshi, read-only, signed on this device. The private key never leaves the device: each request is signed here
 // (Ed25519 via WebCrypto) and sent through a relay only because Kalshi's API refuses requests from web pages.
 // Shared by the poly-accounts phone page and the Chrome extension's accounts page (keep the two copies identical).
-// An account: { id, nick, keyId, pem }. summary(account) -> [{ n, nick, accountId, cash, positions, orders, fills, settlements }]
+// An account: { id, nick, keyId, pem, subNames: { n: name }, hiddenSubs: [n] }. summary(account) -> [{ n, nick, accountId, cash, positions, orders, fills, settlements }]
 var KalshiClient = (() => {
   const RELAY = 'https://kalshi-accounts.robu-ora.workers.dev/k';
   const keys = new Map();
@@ -114,11 +114,16 @@ var KalshiClient = (() => {
   // links: [{ n: nick, k: keyId, p: private key body }] as base64url JSON
   const b64url = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const unb64url = s => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
-  const toLink = accts => b64url(JSON.stringify(accts.map(a => ({ n: a.nick, k: a.keyId, p: String(a.pem).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '') }))));
+  const toLink = accts => b64url(JSON.stringify(accts.map(a => ({ n: a.nick, k: a.keyId, p: String(a.pem).replace(/-----[^-]+-----/g, '').replace(/\s+/g, ''),
+    ...(a.subNames && Object.keys(a.subNames).length ? { s: a.subNames } : {}), ...(a.hiddenSubs?.length ? { h: a.hiddenSubs } : {}) }))));
   const fromLink = s => JSON.parse(unb64url(s)).filter(a => a.k && a.p).map(a => ({
     id: 'k' + Math.random().toString(36).slice(2, 9), nick: a.n || 'Kalshi', keyId: a.k, pem: `-----BEGIN PRIVATE KEY-----\n${a.p}\n-----END PRIVATE KEY-----`,
+    subNames: a.s || {}, hiddenSubs: a.h || [],
   }));
+  // card label for a subaccount: its own name if renamed, else "Nick · Sub n"
+  const subLabel = (acct, n) => acct?.subNames?.[n] || `${acct?.nick || 'Kalshi'} · Sub ${n}${n === 0 ? ' (primary)' : ''}`;
+  const isHidden = (acct, n) => !!acct?.hiddenSubs?.includes(n);
   const newId = () => 'k' + Math.random().toString(36).slice(2, 9);
 
-  return { summary, check, toLink, fromLink, newId };
+  return { summary, check, toLink, fromLink, newId, subLabel, isHidden };
 })();
