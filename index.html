@@ -430,16 +430,16 @@
       <h2>Your accounts</h2>${rows || '<div class="hint2">None yet.</div>'}
       ${accounts.length ? `<button class="pick" id="copylink" style="margin-top:12px;width:100%;height:42px">${ed.copied ? 'Link copied' : 'Copy link to this list'}</button>
         <div class="hint2">Open the copied link on another device (or after reinstalling) to get the same accounts.</div>` : ''}
+      <h2>Add a Polymarket account</h2>
+      <form class="addbox" id="addform"><input id="addq" placeholder="Username, profile link or wallet" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+        <button type="submit">${ed.busy ? '…' : 'Find'}</button></form>
+      ${ed.msg ? `<div class="hint2">${esc(ed.msg)}</div>` : ''}
+      ${results}
       <h2>Kalshi</h2>
       ${kToken ? `<div class="erow"><span class="av" style="background:#0a9b6d">K</span><div class="t"><div class="a">Connected</div>
           <div class="b">${kalshi.subs ? kalshi.subs.length + ' subaccounts' : 'read-only'}</div></div>
           <button class="ebtn del" id="kdisconnect" aria-label="Disconnect Kalshi"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`
         : `<form class="addbox" id="kform"><input id="kcode" placeholder="Kalshi access code" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit">Connect</button></form>`}
-      <h2>Add an account</h2>
-      <form class="addbox" id="addform"><input id="addq" placeholder="Username, profile link or wallet" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
-        <button type="submit">${ed.busy ? '…' : 'Find'}</button></form>
-      ${ed.msg ? `<div class="hint2">${esc(ed.msg)}</div>` : ''}
-      ${results}
     </div>`;
   }
   const listEl = () => document.querySelector('.list');
