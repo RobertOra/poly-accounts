@@ -188,7 +188,7 @@
     const names = pmInOrder().map(a => a.u || a.w).join(',');
     const target = location.pathname + (names ? '#' + names : '');   // Kalshi keys never go in the address bar
     if (location.pathname + location.hash !== target) history.replaceState(null, '', target);
-    store.set('importedFrom', accounts.map(a => a.u || a.w).join(','));
+    store.set('importedFrom', names);   // same string as the address, so reopening it isn't treated as a new link
   }
   const saveAccounts = () => { store.set('accounts', accounts); syncUrl(); };
   let range = store.get('range', '1w');
