@@ -78,18 +78,28 @@ var KalshiClient = (() => {
     }))).filter(Boolean).sort((a, b) => b.value - a.value);
     const titles = {};
     await Promise.all([...new Set([...fillsRaw, ...setRaw, ...ordersRaw].map(x => x.ticker))].slice(0, 60).map(async t => { titles[t] = (await market(t)).title || t; }));
+    // Kalshi's "sell Yes" while holding no Yes is really "buy No" (outcome_side says which contracts you end up with).
+    // Show orders by that outcome at its own price; only orders that open a position tie up cash.
     const orders = ordersRaw.map(o => {
-      const side = (o.side || '').toLowerCase() === 'no' ? 'No' : 'Yes';
-      return { ticker: o.ticker, title: titles[o.ticker] || o.ticker, side, action: (o.action || 'buy').toLowerCase() === 'sell' ? 'Sell' : 'Buy',
-        price: side === 'Yes' ? num(o, ['yes_price_dollars'], ['yes_price']) : num(o, ['no_price_dollars'], ['no_price']),
-        remaining: num(o, ['remaining_count_fp', 'remaining_count']), ts: Date.parse(o.created_time) / 1000 };
+      const side = (o.side || 'yes').toLowerCase() === 'no' ? 'No' : 'Yes';
+      const outcome = (o.outcome_side || o.side || 'yes').toLowerCase() === 'no' ? 'No' : 'Yes';
+      const sell = (o.action || 'buy').toLowerCase() === 'sell';
+      const opens = !sell || outcome !== side;
+      const price = outcome === 'Yes' ? num(o, ['yes_price_dollars'], ['yes_price']) : num(o, ['no_price_dollars'], ['no_price']);
+      const remaining = num(o, ['remaining_count_fp', 'remaining_count']);
+      return { ticker: o.ticker, title: titles[o.ticker] || o.ticker, side: opens ? outcome : side, action: opens ? 'Buy' : 'Sell',
+        price: opens ? price : (side === 'Yes' ? num(o, ['yes_price_dollars'], ['yes_price']) : num(o, ['no_price_dollars'], ['no_price'])),
+        remaining, cash: opens ? remaining * price : 0, ts: Date.parse(o.created_time) / 1000 };
     }).sort((a, b) => b.ts - a.ts);
     const fills = fillsRaw.map(f => {
-      const side = (f.side || '').toLowerCase() === 'no' ? 'No' : 'Yes';
-      const price = side === 'Yes' ? num(f, ['yes_price_dollars'], ['yes_price']) : num(f, ['no_price_dollars'], ['no_price']);
+      const side = (f.side || 'yes').toLowerCase() === 'no' ? 'No' : 'Yes';
+      const outcome = (f.outcome_side || f.side || 'yes').toLowerCase() === 'no' ? 'No' : 'Yes';
+      const sell = (f.action || 'buy').toLowerCase() === 'sell', opens = !sell || outcome !== side;   // same reading as orders
+      const shown = opens ? outcome : side;
+      const price = shown === 'Yes' ? num(f, ['yes_price_dollars'], ['yes_price']) : num(f, ['no_price_dollars'], ['no_price']);
       const count = num(f, ['count_fp', 'count']);
-      return { type: (f.action || 'buy').toLowerCase() === 'sell' ? 'Sold' : 'Bought', ticker: f.ticker, title: titles[f.ticker] || f.ticker,
-        side, count, price, usd: count * price, ts: Date.parse(f.created_time) / 1000 };
+      return { type: opens ? 'Bought' : 'Sold', ticker: f.ticker, title: titles[f.ticker] || f.ticker,
+        side: shown, count, price, usd: count * price, ts: Date.parse(f.created_time) / 1000 };
     });
     const settlements = setRaw.map(s => {
       const cost = num(s, ['yes_total_cost_dollars'], ['yes_total_cost']) + num(s, ['no_total_cost_dollars'], ['no_total_cost']);

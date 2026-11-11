@@ -424,7 +424,7 @@
         <div class="stat"><div class="k">Settled P&amp;L (${rangeLabel})</div><div class="v ${tone(realized)}">${usd(realized, true)}</div></div>
         <div class="stat"><div class="k">Open positions</div><div class="v">${s.positions.length}</div></div>
       </div>
-      ${s.orders ? `<button class="rewards orders-toggle" data-orders="${key}">Resting orders: <span>${s.orders}</span>${s.orderList?.length ? ` · <span>${usd(s.orderList.reduce((t, o) => t + o.remaining * o.price, 0))}</span>` : ''} <i>${ui.orders[key] ? '▾' : '▸'}</i></button>
+      ${s.orders ? `<button class="rewards orders-toggle" data-orders="${key}">Resting orders: <span>${s.orders}</span>${s.orderList?.length ? ` · <span>${usd(s.orderList.reduce((t, o) => t + (o.cash ?? o.remaining * o.price), 0))}</span>` : ''} <i>${ui.orders[key] ? '▾' : '▸'}</i></button>
         ${ui.orders[key] ? `<div class="orderlist">${(s.orderList || []).map(o => `<div class="row">${KBADGE}
             <div class="t"><div class="a">${esc(o.title)}</div><div class="b">${o.action} <span class="oc ${o.side === 'Yes' ? 'yes' : 'no'}">${o.side}</span> · ${o.remaining.toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(o.price)} · ${ago(o.ts)}</div></div>
             <div class="r"><div class="a">${usd(o.remaining * o.price)}</div></div></div>`).join('')}</div>` : ''}` : ''}
