@@ -86,6 +86,9 @@
   .stat .v { font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; }
   .rewards { padding:0 14px 6px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
   .rewards span { font-weight:650; }
+  .orders-toggle { display:block; width:100%; text-align:left; }
+  .orders-toggle i { font-style:normal; color:var(--faint); }
+  .orderlist { padding-bottom:6px; }
   .rewards .note { font-weight:400; color:var(--faint); margin-left:6px; font-size:12px; }
   .mi.glyph { display:inline-flex; align-items:center; justify-content:center; color:var(--up); background:color-mix(in srgb, var(--up) 14%, transparent); }
   .up { color:var(--up); } .down { color:var(--down); }
@@ -242,7 +245,7 @@
   }
 
   // ---- data ----
-  const data = {}, ui = { allPos: {}, moreAct: {}, view: store.get('view', 'positions') };
+  const data = {}, ui = { allPos: {}, moreAct: {}, orders: {}, view: store.get('view', 'positions') };
   let updatedAt = 0;
   async function loadAccount(w) {
     const d = data[w] || (data[w] = {});
@@ -385,6 +388,7 @@
   const shownSubs = () => (kalshi.subs || []).filter(s => !KalshiClient.isHidden(kAccts.find(k => k.id === s.accountId), s.n));
   const hiddenCount = () => accounts.filter(a => a.h).length + kAccts.reduce((t, k) => t + (k.hiddenSubs?.length || 0), 0);
   const kName = s => KalshiClient.subLabel(kAccts.find(k => k.id === s.accountId), s.n);
+  const KBADGE = '<span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>';
   function kalshiStats(s) {
     const since = range === 'all' ? 0 : Date.now() / 1000 - RANGE_SECS[range];
     const sets = [...s.settlements].sort((x, y) => x.ts - y.ts);
@@ -420,7 +424,10 @@
         <div class="stat"><div class="k">Settled P&amp;L (${rangeLabel})</div><div class="v ${tone(realized)}">${usd(realized, true)}</div></div>
         <div class="stat"><div class="k">Open positions</div><div class="v">${s.positions.length}</div></div>
       </div>
-      ${s.orders ? `<div class="rewards">Resting orders: <span>${s.orders}</span></div>` : ''}
+      ${s.orders ? `<button class="rewards orders-toggle" data-orders="${key}">Resting orders: <span>${s.orders}</span> <i>${ui.orders[key] ? '▾' : '▸'}</i></button>
+        ${ui.orders[key] ? `<div class="orderlist">${(s.orderList || []).map(o => `<div class="row">${KBADGE}
+            <div class="t"><div class="a">${esc(o.title)}</div><div class="b">${o.action} <span class="oc ${o.side === 'Yes' ? 'yes' : 'no'}">${o.side}</span> · ${o.remaining.toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(o.price)} · ${ago(o.ts)}</div></div>
+            <div class="r"><div class="a">${usd(o.remaining * o.price)}</div></div></div>`).join('')}</div>` : ''}` : ''}
       ${series ? chart(series, key) : '<div class="empty">No settled markets in this range yet.</div>'}
       <div class="sec"><div class="seg sm">
           <button data-view="positions" class="${ui.view === 'positions' ? 'on' : ''}">Positions</button>
@@ -739,6 +746,10 @@
       await Promise.all(accounts.map(async a => { try { data[a.w].pnl = (await get(`/user-pnl?user=${a.w}&interval=${range}`))?.points || []; } catch { data[a.w].pnl = []; } }));
       render();
     } else if (b.id === 'refresh') { b.style.opacity = '.5'; await refresh(); b.style.opacity = ''; }
+    else if (b.dataset.orders) {
+      const k = b.dataset.orders; ui.orders[k] = !ui.orders[k];
+      renderCard('k:' + k.replace(/-(\d+)$/, ':$1'));
+    }
     else if (b.dataset.allpos) {
       const k = b.dataset.allpos; ui.allPos[k] = !ui.allPos[k];
       renderCard(k.startsWith('0x') ? 'p:' + k : 'k:' + k.replace(/-(\d+)$/, ':$1'));

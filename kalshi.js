@@ -77,7 +77,13 @@ var KalshiClient = (() => {
         side, shares, avg: shares ? cost / shares : null, price, value, cost, pnl: value - cost, pct: cost ? ((value - cost) / cost) * 100 : null };
     }))).filter(Boolean).sort((a, b) => b.value - a.value);
     const titles = {};
-    await Promise.all([...new Set([...fillsRaw, ...setRaw].map(x => x.ticker))].slice(0, 60).map(async t => { titles[t] = (await market(t)).title || t; }));
+    await Promise.all([...new Set([...fillsRaw, ...setRaw, ...ordersRaw].map(x => x.ticker))].slice(0, 60).map(async t => { titles[t] = (await market(t)).title || t; }));
+    const orders = ordersRaw.map(o => {
+      const side = (o.side || '').toLowerCase() === 'no' ? 'No' : 'Yes';
+      return { ticker: o.ticker, title: titles[o.ticker] || o.ticker, side, action: (o.action || 'buy').toLowerCase() === 'sell' ? 'Sell' : 'Buy',
+        price: side === 'Yes' ? num(o, ['yes_price_dollars'], ['yes_price']) : num(o, ['no_price_dollars'], ['no_price']),
+        remaining: num(o, ['remaining_count_fp', 'remaining_count']), ts: Date.parse(o.created_time) / 1000 };
+    }).sort((a, b) => b.ts - a.ts);
     const fills = fillsRaw.map(f => {
       const side = (f.side || '').toLowerCase() === 'no' ? 'No' : 'Yes';
       const price = side === 'Yes' ? num(f, ['yes_price_dollars'], ['yes_price']) : num(f, ['no_price_dollars'], ['no_price']);
@@ -91,7 +97,7 @@ var KalshiClient = (() => {
       return { ticker: s.ticker, title: titles[s.ticker] || s.ticker, result: s.market_result, revenue, cost, pnl: revenue - cost - fees,
         ts: Date.parse(s.settled_time) / 1000 };
     });
-    return { n, nick: acct.nick, accountId: acct.id, cash, positions, orders: ordersRaw.length, fills, settlements };
+    return { n, nick: acct.nick, accountId: acct.id, cash, positions, orders: ordersRaw.length, orderList: orders, fills, settlements };
   }
 
   // every subaccount of one Kalshi account, each reported separately
