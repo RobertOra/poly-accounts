@@ -35,7 +35,8 @@
   .icon-btn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); }
   .icon-btn:active { background:var(--hover); }
   .top { flex-wrap:wrap; }
-  .segrow { display:flex; margin-right:auto; }   /* sits right after the title; Edit and refresh stay at the right */
+  .segrow { display:flex; }   /* sits right after the title */
+  #edit { margin-left:auto; }  /* Edit (Done while editing) and refresh stay at the right */
   .tabs { order:2; display:none; width:100%; gap:6px; overflow-x:auto; scrollbar-width:none; margin:2px -16px -2px; padding:0 16px; }
   .tabs::-webkit-scrollbar { display:none; }
   .tabs button { flex:none; padding:6px 12px; border-radius:999px; font-size:13px; font-weight:600; color:var(--muted); background:var(--chip); }
@@ -398,6 +399,7 @@
     $('edit').textContent = ed.open ? 'Done' : accounts.length ? 'Edit' : 'Add';
     $('seg').parentElement.style.display = ed.open ? 'none' : '';
     $('tabs').style.display = ed.open ? 'none' : '';
+    $('refresh').style.display = ed.open ? 'none' : '';
     if (ed.open) { $('updated').textContent = ''; $('main').innerHTML = editor(); return; }
     $('main').innerHTML = accounts.length ? `<div class="list">${accounts.map(card).join('')}</div>`
       : `<div class="none"><h2>No accounts yet</h2>Tap <b>Add</b> at the top to add accounts by username, or paste the phone link from the Chrome extension:
@@ -504,7 +506,7 @@
     });
   } else { render(); refresh(); }
   setInterval(() => { if (!document.hidden) refresh(); }, 60000);
-  setInterval(() => { if (updatedAt) $('updated').textContent = 'Updated ' + ago(updatedAt / 1000); }, 15000);
+  setInterval(() => { if (updatedAt && !ed.open) $('updated').textContent = 'Updated ' + ago(updatedAt / 1000); }, 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - updatedAt > 20000) refresh(); });
 })();
 </script>
