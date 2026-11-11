@@ -153,9 +153,15 @@
   }
   importLink(location.hash);
   let accounts = store.get('accounts', []);
+  const KALSHI_URL = 'https://kalshi-accounts.robu-ora.workers.dev/summary';
+  let kToken = store.get('kalshi', '');
+  {
+    const m = String(location.hash).match(/[#&]k=([A-Za-z0-9]+)/);
+    if (m && m[1] !== kToken) { kToken = m[1]; store.set('kalshi', kToken); }
+  }
   const listFromHash = h => {
-    const raw = decodeURIComponent(String(h || '').replace(/^.*#/, ''));
-    if (!raw || raw.startsWith('import=')) return null;
+    const raw = decodeURIComponent(String(h || '').replace(/^.*#/, '')).split('&')[0];
+    if (!raw || raw.startsWith('import=') || raw.startsWith('k=')) return null;
     const items = raw.split(',').map(x => x.trim().replace(/^@/, '')).filter(Boolean);
     return items.length && items.every(x => /^(0x[0-9a-fA-F]{40}|[A-Za-z0-9_.-]{1,64})$/.test(x)) ? items : null;
   };
@@ -163,10 +169,10 @@
     const items = listFromHash(location.hash);
     return items && store.get('importedFrom', '') !== items.join(',') ? items : null;   // same link as before: keep manual edits
   })();
-  const shareLink = () => location.origin + location.pathname + '#' + accounts.map(a => a.u || a.w).join(',');
+  const shareLink = () => location.origin + location.pathname + '#' + accounts.map(a => a.u || a.w).join(',') + (kToken ? '&k=' + kToken : '');
   const saveAccounts = () => store.set('accounts', accounts);
   let range = store.get('range', '1w');
-  let active = Math.min(store.get('active', 0), Math.max(0, accounts.length - 1));   // account shown on a phone (carousel)
+  let active = Math.max(0, store.get('active', 0));   // card shown on a phone (carousel); clamped once cards exist
 
   // ---- helpers ----
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -224,11 +230,22 @@
     if (cash.status === 'fulfilled') d.cash = cash.value;
     d.error = res.some(x => x.status === 'rejected') ? "Some data didn't load; it will retry." : null;
   }
+  const kalshi = { subs: null, error: null };
+  async function loadKalshi() {
+    if (!kToken) { kalshi.subs = null; return; }
+    try {
+      const r = await fetch(KALSHI_URL, { headers: { Authorization: 'Bearer ' + kToken }, cache: 'no-store' });
+      if (r.status === 401) { kalshi.error = 'Kalshi access code not accepted.'; return; }
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      kalshi.subs = j.subaccounts; kalshi.error = null;
+    } catch { kalshi.error = "Kalshi data didn't load; it will retry."; }
+  }
   let loading = false;
   async function refresh() {
-    if (loading || !accounts.length) return;
+    if (loading || (!accounts.length && !kToken)) return;
     loading = true;
-    await Promise.all(accounts.map(a => loadAccount(a.w).catch(() => {})));
+    await Promise.all([...accounts.map(a => loadAccount(a.w).catch(() => {})), loadKalshi()]);
     loading = false; updatedAt = Date.now(); render();
   }
 
@@ -288,6 +305,7 @@
   }
   function card(a) {
     const d = data[a.w] || {}, { change, series, rewardsInRange } = pnlStats(d.pnl, d.rewards), pos = d.positions || [];
+    seriesMap[a.w] = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1];
     return `<section class="col">
       <div class="head"><a href="${profileUrl(a)}">${avatar(a)}</a>
@@ -312,6 +330,59 @@
         : (d.activity ? (d.activity.length ? (ui.moreAct[a.w] ? d.activity : d.activity.slice(0, 8)).map(activityRow).join('') : '<div class="empty">No activity yet.</div>') : '<div class="empty">Loading…</div>')}
     </section>`;
   }
+  const seriesMap = {};
+  const kName = s => `Kalshi · Sub ${s.n}${s.n === 0 ? ' (main)' : ''}`;
+  function kalshiStats(s) {
+    const since = range === 'all' ? 0 : Date.now() / 1000 - RANGE_SECS[range];
+    const sets = [...s.settlements].sort((x, y) => x.ts - y.ts);
+    const realized = sets.filter(x => x.ts >= since).reduce((t, x) => t + x.pnl, 0);
+    let run = sets.filter(x => x.ts < since).reduce((t, x) => t + x.pnl, 0);
+    const series = [[Math.max(since, sets[0]?.ts || since), run]];
+    for (const x of sets.filter(x => x.ts >= since)) { run += x.pnl; series.push([x.ts, run]); }
+    if (series.length > 1) series.push([Math.floor(Date.now() / 1000), run]);
+    return { realized, series: series.length > 2 ? series : null };
+  }
+  const kPositionRow = p => `<div class="row"><span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>
+      <div class="t"><div class="a">${esc(p.title)}${p.subtitle ? ' · ' + esc(p.subtitle) : ''}</div>
+        <div class="b"><span class="oc ${p.side === 'Yes' ? 'yes' : 'no'}">${p.side}</span> · ${p.shares.toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(p.avg)} → ${cents(p.price)}</div></div>
+      <div class="r"><div class="a">${usd(p.value)}</div><div class="b ${tone(p.pnl)}">${usd(p.pnl, true)} ${pct(p.pct)}</div></div></div>`;
+  const kActivityRow = a => a.kind === 'settle'
+    ? `<div class="row"><span class="mi glyph">${GIFT.replace('GIFT', '')}</span>
+        <div class="t"><div class="a">${esc(a.title)}</div><div class="b">Settled${a.result ? ' · ' + esc(String(a.result).toUpperCase()) + ' won' : ''} · ${ago(a.ts)}</div></div>
+        <div class="r"><div class="a ${tone(a.pnl)}">${usd(a.pnl, true)}</div></div></div>`
+    : `<div class="row"><span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>
+        <div class="t"><div class="a">${esc(a.title)}</div><div class="b">${a.type} <span class="oc ${a.side === 'Yes' ? 'yes' : 'no'}">${a.side}</span> at ${cents(a.price)} · ${ago(a.ts)}</div></div>
+        <div class="r"><div class="a">${usd(a.usd)}</div></div></div>`;
+  function kalshiCard(s) {
+    const key = 'k' + s.n, posValue = s.positions.reduce((t, p) => t + p.value, 0), { realized, series } = kalshiStats(s);
+    seriesMap[key] = series;
+    const rangeLabel = RANGES.find(r => r[0] === range)[1];
+    const acts = [...s.fills.map(f => ({ ...f, kind: 'fill' })), ...s.settlements.map(x => ({ ...x, kind: 'settle' }))].sort((x, y) => y.ts - x.ts);
+    return `<section class="col">
+      <div class="head"><span class="av" style="background:#0a9b6d">K</span>
+        <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">Kalshi subaccount ${s.n}</div></div></div>
+      <div class="portfolio"><div class="k">Portfolio</div><div class="big">${usd(s.cash + posValue)}</div></div>
+      <div class="stats">
+        <div class="stat"><div class="k">Positions</div><div class="v">${usd(posValue)}</div></div>
+        <div class="stat"><div class="k">Settled P&amp;L (${rangeLabel})</div><div class="v ${tone(realized)}">${usd(realized, true)}</div></div>
+        <div class="stat"><div class="k">Open positions</div><div class="v">${s.positions.length}</div></div>
+      </div>
+      ${s.orders ? `<div class="rewards">Resting orders: <span>${s.orders}</span></div>` : ''}
+      ${series ? chart(series, key) : '<div class="empty">No settled markets in this range yet.</div>'}
+      <div class="sec"><div class="seg sm">
+          <button data-view="positions" class="${ui.view === 'positions' ? 'on' : ''}">Positions</button>
+          <button data-view="activity" class="${ui.view === 'activity' ? 'on' : ''}">Activity</button></div>
+        ${ui.view === 'positions'
+          ? (s.positions.length > 8 ? `<button class="more" data-allpos="${key}">${ui.allPos[key] ? 'Show less' : `Show all ${s.positions.length}`}</button>` : '')
+          : (acts.length > 8 ? `<button class="more" data-moreact="${key}">${ui.moreAct[key] ? 'Show less' : 'Show more'}</button>` : '')}</div>
+      ${ui.view === 'positions'
+        ? (s.positions.length ? (ui.allPos[key] ? s.positions : s.positions.slice(0, 8)).map(kPositionRow).join('') : '<div class="empty">No open positions.</div>')
+        : (acts.length ? (ui.moreAct[key] ? acts : acts.slice(0, 8)).map(kActivityRow).join('') : '<div class="empty">No activity yet.</div>')}
+    </section>`;
+  }
+  // all cards in display order: Polymarket accounts, then Kalshi subaccounts
+  const cardNames = () => [...accounts.map(nameOf), ...(kalshi.subs || []).map(kName)];
+  const cardCount = () => cardNames().length;
   const $ = id => document.getElementById(id);
   const ed = { open: false, results: null, busy: false, msg: '', copied: false };
   const short = w => w.slice(0, 6) + '…' + w.slice(-4);
@@ -359,6 +430,11 @@
       <h2>Your accounts</h2>${rows || '<div class="hint2">None yet.</div>'}
       ${accounts.length ? `<button class="pick" id="copylink" style="margin-top:12px;width:100%;height:42px">${ed.copied ? 'Link copied' : 'Copy link to this list'}</button>
         <div class="hint2">Open the copied link on another device (or after reinstalling) to get the same accounts.</div>` : ''}
+      <h2>Kalshi</h2>
+      ${kToken ? `<div class="erow"><span class="av" style="background:#0a9b6d">K</span><div class="t"><div class="a">Connected</div>
+          <div class="b">${kalshi.subs ? kalshi.subs.length + ' subaccounts' : 'read-only'}</div></div>
+          <button class="ebtn del" id="kdisconnect" aria-label="Disconnect Kalshi"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5l10 10M15 5L5 15"/></svg></button></div>`
+        : `<form class="addbox" id="kform"><input id="kcode" placeholder="Kalshi access code" autocomplete="off" autocapitalize="off" spellcheck="false"><button type="submit">Connect</button></form>`}
       <h2>Add an account</h2>
       <form class="addbox" id="addform"><input id="addq" placeholder="Username, profile link or wallet" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
         <button type="submit">${ed.busy ? '…' : 'Find'}</button></form>
@@ -393,15 +469,17 @@
     else l.children[i]?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant', block: 'start' });
   }
   function render() {
-    $('tabs').innerHTML = accounts.length > 1 ? accounts.map((a, i) => `<button data-tab="${i}" class="${i === active ? 'on' : ''}">${esc(nameOf(a))}</button>`).join('') : '';
+    const names = cardNames();
+    if (active > Math.max(0, names.length - 1)) active = Math.max(0, names.length - 1);
+    $('tabs').innerHTML = names.length > 1 ? names.map((n, i) => `<button data-tab="${i}" class="${i === active ? 'on' : ''}">${esc(n)}</button>`).join('') : '';
     $('seg').innerHTML = RANGES.map(([k, l]) => `<button data-range="${k}" class="${k === range ? 'on' : ''}">${l}</button>`).join('');
-    $('updated').textContent = !accounts.length ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) : 'Loading…';
+    $('updated').textContent = !names.length && !kToken ? '' : updatedAt ? 'Updated ' + ago(updatedAt / 1000) + (kalshi.error ? ' · ' + kalshi.error : '') : 'Loading…';
     $('edit').textContent = ed.open ? 'Done' : accounts.length ? 'Edit' : 'Add';
     $('seg').parentElement.style.display = ed.open ? 'none' : '';
     $('tabs').style.display = ed.open ? 'none' : '';
     $('refresh').style.display = ed.open ? 'none' : '';
     if (ed.open) { $('updated').textContent = ''; $('main').innerHTML = editor(); return; }
-    $('main').innerHTML = accounts.length ? `<div class="list">${accounts.map(card).join('')}</div>`
+    $('main').innerHTML = names.length ? `<div class="list">${accounts.map(card).join('')}${(kalshi.subs || []).map(kalshiCard).join('')}</div>`
       : `<div class="none"><h2>No accounts yet</h2>Tap <b>Add</b> at the top to add accounts by username, or paste the phone link from the Chrome extension:
           <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#import=…"></textarea>
           <button class="go" id="usepaste">Add accounts</button><div id="pasteerr" class="err"></div></div>`;
@@ -411,7 +489,7 @@
       l.addEventListener('scroll', () => {
         if (jumping) return;
         const i = Math.round(l.scrollLeft / l.clientWidth);
-        if (i !== active && i >= 0 && i < accounts.length) {
+        if (i !== active && i >= 0 && i < cardCount()) {
           active = i; store.set('active', i); markTabs();
           document.querySelector('#tabs .on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
           const top = l.getBoundingClientRect().top + scrollY - document.querySelector('.top').offsetHeight;
@@ -426,7 +504,7 @@
     const box = e.target.closest?.('.chart');
     document.querySelectorAll('.chart').forEach(c => { if (c !== box) { c.querySelector('.cursor')?.setAttribute('visibility', 'hidden'); c.querySelector('.tip').textContent = ''; } });
     if (!box) return;
-    const series = pnlStats(data[box.dataset.w]?.pnl, data[box.dataset.w]?.rewards).series; if (!series) return;
+    const series = seriesMap[box.dataset.w]; if (!series) return;
     const r = box.querySelector('svg').getBoundingClientRect();
     const i = Math.max(0, Math.min(series.length - 1, Math.round(((e.clientX - r.left) / r.width) * (series.length - 1))));
     const cur = box.querySelector('.cursor'), x = (i / (series.length - 1)) * 340;
@@ -435,6 +513,12 @@
     box.querySelector('.tip').innerHTML = `<span class="${tone(v)}">${usd(v, true)}</span> · ${new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })}`;
   }
   document.addEventListener('submit', async e => {
+    if (e.target.id === 'kform') {
+      e.preventDefault();
+      const code = $('kcode').value.trim().replace(/^.*[#&]k=/, '');
+      if (/^[A-Za-z0-9]{16,}$/.test(code)) { kToken = code; store.set('kalshi', kToken); await loadKalshi(); render(); }
+      return;
+    }
     if (e.target.id !== 'addform') return;
     e.preventDefault();
     const q = $('addq').value;
@@ -456,6 +540,10 @@
       ed.open = !ed.open; ed.results = null; ed.msg = '';
       if (!ed.open) { active = Math.min(active, Math.max(0, accounts.length - 1)); store.set('active', active); render(); refresh(); return; }
       render(); return;
+    }
+    if (b.id === 'kdisconnect') {
+      if (confirm('Disconnect Kalshi on this device?')) { kToken = ''; store.set('kalshi', ''); kalshi.subs = null; render(); }
+      return;
     }
     if (b.id === 'copylink') {
       const link = shareLink();
