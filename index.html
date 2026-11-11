@@ -663,7 +663,10 @@
   if (pendingNames) {
     $('main').innerHTML = '<div class="none">Finding accounts…</div>';
     resolveNames(pendingNames).then(list => {
-      if (list.length) { accounts = list; saveAccounts(); }
+      if (list.length) {
+        const wasHidden = new Set(accounts.filter(a => a.h).map(a => a.w));   // a new link keeps per-device hidden settings
+        accounts = list.map(a => (wasHidden.has(a.w) ? { ...a, h: true } : a)); saveAccounts();
+      }
       render(); refresh();
     });
   } else { if (accounts.length) syncUrl(); render(); refresh(); }
