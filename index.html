@@ -456,7 +456,7 @@
   // username, @username, profile link, wallet address, or a phone link -> candidate accounts
   async function findAccounts(q) {
     q = q.trim();
-    if (/#import=/.test(q)) return { link: q };
+    if (/poly-accounts\/?#|#import=|[#&]kalshi=/.test(q)) return { link: q };
     const wallet = (q.match(/0x[0-9a-fA-F]{40}/) || [])[0];
     if (wallet) {
       const r = await fetch(`${GAMMA}/public-profile?address=${wallet}`);
@@ -469,6 +469,28 @@
     const profiles = ((r.ok ? await r.json() : {}).profiles || []).filter(p => p.proxyWallet);
     profiles.sort((a, b) => ((b.name || '').toLowerCase() === name.toLowerCase()) - ((a.name || '').toLowerCase() === name.toLowerCase()));
     return { list: profiles.map(p => ({ w: p.proxyWallet.toLowerCase(), n: p.name || p.pseudonym, u: p.name || undefined, i: p.profileImage || undefined })) };
+  }
+  // Import a whole poly-accounts link pasted into Edit: its Polymarket accounts (readable names or #import=) and any Kalshi keys.
+  async function applyLink(link) {
+    const hash = String(link).replace(/^[^#]*#/, '#');
+    let pm = 0, kn = 0;
+    const m = hash.match(/[#&]kalshi=([A-Za-z0-9_-]+)/);
+    if (m) {
+      try {
+        for (const a of KalshiClient.fromLink(m[1])) { kAccts = kAccts.filter(x => x.keyId !== a.keyId); kAccts.push(a); kn++; }
+        saveK();
+      } catch {}
+    }
+    let list = null;
+    const im = hash.match(/#import=([A-Za-z0-9_-]+)/);
+    if (im) { try { list = JSON.parse(b64urlDecode(im[1])).filter(a => /^0x[0-9a-f]{40}$/i.test(a.w)); } catch {} }
+    else { const names = listFromHash(hash); if (names) list = await resolveNames(names); }
+    if (list?.length) {
+      const wasHidden = new Set(accounts.filter(a => a.h).map(a => a.w));
+      accounts = list.map(a => (wasHidden.has(a.w) ? { ...a, h: true } : a)); saveAccounts(); pm = list.length;
+    }
+    if (kn) await loadKalshi();
+    return [pm && `${pm} Polymarket account${pm > 1 ? 's' : ''}`, kn && `${kn} Kalshi account${kn > 1 ? 's' : ''}`].filter(Boolean).join(' and ');
   }
   async function resolveNames(items) {
     const out = [];
@@ -515,7 +537,7 @@
         ${kAccts.length ? `<button class="pick" data-copy="kalshi" style="margin-top:8px;width:100%;height:42px;background:var(--chip);color:var(--fg)">${ed.copied === 'kalshi' ? 'Link copied' : 'Copy link with Kalshi keys'}</button>` : ''}
         <div class="hint2">Open the copied link on another device (or after reinstalling) to get the same accounts.${kAccts.length ? ' The second link also carries your read-only Kalshi keys; only send it to yourself.' : ''}</div>` : ''}
       <h2>Add a Polymarket account</h2>
-      <form class="addbox" id="addform"><input id="addq" placeholder="Username, profile link or wallet" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+      <form class="addbox" id="addform"><input id="addq" placeholder="Username, wallet, or a poly-accounts link" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
         <button type="submit">${ed.busy ? '…' : 'Find'}</button></form>
       ${ed.msg ? `<div class="hint2">${esc(ed.msg)}</div>` : ''}
       ${results}
@@ -577,7 +599,7 @@
     if (ed.open) { $('updated').textContent = ''; $('main').innerHTML = editor(); return; }
     $('main').innerHTML = names.length ? `<div class="list">${shownItems().map(x => (x.type === 'pm' ? card(x.a) : kalshiCard(x.s))).join('')}</div>`
       : `<div class="none"><h2>No accounts yet</h2>Tap <b>Add</b> at the top to add accounts by username, or paste the phone link from the Chrome extension:
-          <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#import=…"></textarea>
+          <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#…"></textarea>
           <button class="go" id="usepaste">Add accounts</button><div id="pasteerr" class="err"></div></div>`;
     const l = listEl();
     if (l && isCarousel()) {
@@ -633,7 +655,7 @@
     ed.busy = true; ed.msg = ''; render(); $('addq').value = q;
     try {
       const r = await findAccounts(q);
-      if (r.link) { ed.busy = false; if (importLink(r.link, true)) location.reload(); else { ed.msg = "That link didn't work."; render(); } return; }
+      if (r.link) { ed.busy = false; const n = await applyLink(r.link); ed.msg = n ? `Imported ${n}.` : "That link didn't work."; ed.results = null; render(); refresh(); return; }
       ed.results = r.list;
     } catch { ed.results = null; ed.msg = "Couldn't reach Polymarket. Try again."; }
     ed.busy = false; render(); $('addq').value = q;
@@ -742,8 +764,10 @@
     if (b.dataset.view) { ui.view = b.dataset.view; store.set('view', ui.view); render(); return; }
     if (b.dataset.tab) { active = +b.dataset.tab; store.set('active', active); markTabs(); goTo(active, true); return; }
     if (b.id === 'usepaste') {
-      if (importLink(document.getElementById('paste').value)) location.reload();
-      else document.getElementById('pasteerr').textContent = "That doesn't look like a phone link.";
+      const text = document.getElementById('paste').value;
+      b.textContent = 'Adding…'; b.disabled = true;
+      if (await applyLink(text)) { render(); refresh(); }
+      else { b.textContent = 'Add accounts'; b.disabled = false; document.getElementById('pasteerr').textContent = "That doesn't look like a poly-accounts link."; }
       return;
     }
     if (b.dataset.range) {
