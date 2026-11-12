@@ -34,6 +34,8 @@
   .seg button.on { background:var(--card); color:var(--fg); box-shadow:0 1px 2px rgba(0,0,0,.15); }
   .icon-btn { width:34px; height:34px; border-radius:9px; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); }
   .icon-btn:active { background:var(--hover); }
+  .icon-btn.spin svg { animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
   .top { flex-wrap:wrap; }
   .segrow { display:flex; }   /* sits right after the title */
   #edit { margin-left:auto; }  /* Edit (Done while editing) and refresh stay at the right */
@@ -140,6 +142,9 @@
 <div class="updated" id="updated"></div>
 <main id="main"></main>
 <script src="kalshi.js?v=e0874eb4cf"></script>
+<script>
+{ const f = window.fetch.bind(window); window.fetch = (u, o = {}) => f(u, { ...o, signal: o.signal || AbortSignal.timeout(15000) }); }
+</script>
 <script>
 // Read-only overview of Polymarket accounts, one card each; nothing is combined across accounts.
 // This file contains no accounts: the list arrives in the link's #fragment (never sent to any server) and is kept on this device.
@@ -271,16 +276,17 @@
     kalshi.subs = kAccts.flatMap(a => kalshi.byAcct[a.id] || []);
     kalshi.error = errs.length ? 'Kalshi ' + errs.join(', ') : null;
   }
-  let loading = false;
+  let loading = false, loadingSince = 0;
+  const spin = on => document.getElementById('refresh')?.classList.toggle('spin', on);
   async function refresh() {
-    if (loading || (!accounts.length && !kAccts.length)) return;
-    loading = true;
+    if ((loading && Date.now() - loadingSince < 30000) || (!accounts.length && !kAccts.length)) return;   // a stuck refresh stops blocking after 30 s
+    loading = true; loadingSince = Date.now(); spin(true);
     const firstLoad = !updatedAt;
     await Promise.all([
       ...shownAccounts().map(a => loadAccount(a.w).catch(() => {}).then(() => { if (firstLoad) renderCard('p:' + a.w); })),
       loadKalshi().then(() => { if (firstLoad && kalshi.subs?.length) render(); }),
     ]);
-    loading = false; updatedAt = Date.now(); render();
+    loading = false; spin(false); updatedAt = Date.now(); render();
   }
 
   // ---- rendering ----
@@ -747,7 +753,7 @@
       for (const w in data) data[w].pnl = null; render();
       await Promise.all(accounts.map(async a => { try { data[a.w].pnl = (await get(`/user-pnl?user=${a.w}&interval=${range}`))?.points || []; } catch { data[a.w].pnl = []; } }));
       render();
-    } else if (b.id === 'refresh') { b.style.opacity = '.5'; await refresh(); b.style.opacity = ''; }
+    } else if (b.id === 'refresh') { await refresh(); }
     else if (b.dataset.orders) {
       const k = b.dataset.orders; ui.orders[k] = !ui.orders[k];
       renderCard('k:' + k.replace(/-(\d+)$/, ':$1'));
