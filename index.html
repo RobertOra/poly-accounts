@@ -88,6 +88,8 @@
   .stat .v { font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; }
   .rewards { padding:0 14px 6px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums; }
   .rewards span { font-weight:650; }
+  .acctrow { width:100%; text-align:left; }
+  .acctrow:active { background:var(--hover); }
   .orders-toggle { display:block; width:100%; text-align:left; }
   .orders-toggle i { font-style:normal; color:var(--faint); }
   .orderlist { padding-bottom:6px; }
@@ -283,7 +285,7 @@
     loading = true; loadingSince = Date.now(); spin(true);
     const firstLoad = !updatedAt;
     await Promise.all([
-      ...shownAccounts().map(a => loadAccount(a.w).catch(() => {}).then(() => { if (firstLoad) renderCard('p:' + a.w); })),
+      ...shownAccounts().map(a => loadAccount(a.w).catch(() => {}).then(() => { if (firstLoad) { renderCard('p:' + a.w); if (document.querySelector('[data-ck="total"]')) renderCard('total'); } })),
       loadKalshi().then(() => { if (firstLoad && kalshi.subs?.length) render(); }),
     ]);
     loading = false; spin(false); updatedAt = Date.now(); render();
@@ -380,10 +382,16 @@
       ...accounts.map(a => ({ key: 'p:' + a.w, type: 'pm', a, hidden: !!a.h, label: nameOf(a), sub: 'Polymarket' })),
       ...(kalshi.subs || []).map(s => ({ key: `k:${s.accountId}:${s.n}`, type: 'k', s, hidden: KalshiClient.isHidden(kAcctOf(s), s.n), label: kName(s), sub: KalshiClient.subCaption(kAcctOf(s), s.n) })),
     ];
+    if (items.length >= 2) items.unshift({ key: 'total', type: 'total', hidden: totalHidden, label: 'All accounts', sub: 'Combined total of the accounts shown' });
     const pos = new Map(cardOrder.map((k, i) => [k, i]));
-    return items.map((x, i) => ({ x, i })).sort((u, v) => (pos.get(u.x.key) ?? 1e6 + u.i) - (pos.get(v.x.key) ?? 1e6 + v.i)).map(u => u.x);
+    const dflt = (x, i) => (x.key === 'total' ? -1 : 1e6 + i);              // new: All accounts first, others at the end
+    return items.map((x, i) => ({ x, i })).sort((u, v) => (pos.get(u.x.key) ?? dflt(u.x, u.i)) - (pos.get(v.x.key) ?? dflt(v.x, v.i))).map(u => u.x);
   }
-  const shownItems = () => allItems().filter(x => !x.hidden);
+  let totalHidden = store.get('totalHidden', false);
+  const shownItems = () => {
+    const shown = allItems().filter(x => !x.hidden);
+    return shown.filter(x => x.type !== 'total' || shown.filter(y => y.type !== 'total').length >= 2);   // a total of one account is just that account
+  };
   function moveCard(key, dir) {
     const keys = allItems().map(x => x.key), i = keys.indexOf(key), j = i + dir;
     if (i < 0 || j < 0 || j >= keys.length) return;
@@ -392,7 +400,7 @@
   }
   const shownAccounts = () => accounts.filter(a => !a.h);
   const shownSubs = () => (kalshi.subs || []).filter(s => !KalshiClient.isHidden(kAccts.find(k => k.id === s.accountId), s.n));
-  const hiddenCount = () => accounts.filter(a => a.h).length + kAccts.reduce((t, k) => t + (k.hiddenSubs?.length || 0), 0);
+  const hiddenCount = () => accounts.filter(a => a.h).length + kAccts.reduce((t, k) => t + (k.hiddenSubs?.length || 0), 0);   // accounts only (not the total)
   const kName = s => KalshiClient.subLabel(kAccts.find(k => k.id === s.accountId), s.n);
   const KBADGE = '<span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>';
   function kalshiStats(s) {
@@ -447,7 +455,44 @@
     </section>`;
   }
   // all cards in display order: Polymarket accounts, then Kalshi subaccounts
-  const cardNames = () => shownItems().map(x => x.label);
+  const cardNames = () => shownItems().map(x => (x.type === 'total' ? 'All' : x.label));
+  // All accounts: totals = exactly the sum of the rows below (each account's P&L as its own card shows it)
+  function totalCard() {
+    const parts = shownItems().filter(x => x.type !== 'total').map(x => {
+      if (x.type === 'pm') {
+        const d = data[x.a.w] || {}, st = pnlStats(d.pnl, d.rewards);
+        return { key: x.key, name: nameOf(x.a), av: avatar(x.a), port: d.value != null && d.cash != null ? d.value + d.cash : null, pnl: d.pnl ? st.change : null, series: st.series };
+      }
+      const pv = x.s.positions.reduce((t, p) => t + p.value, 0), ks = kalshiStats(x.s);
+      return { key: x.key, name: kName(x.s), av: '<span class="av" style="background:#0a9b6d">K</span>', port: x.s.cash + pv, pnl: ks.realized, series: ks.series, kalshi: true };
+    });
+    const known = parts.filter(p => p.port != null), total = known.reduce((t, p) => t + p.port, 0);
+    const pnl = parts.reduce((t, p) => t + (p.pnl || 0), 0), allIn = known.length === parts.length;
+    // combined chart: each account's P&L line held between its points, added up
+    const lines = parts.filter(p => p.series?.length > 1).map(p => p.series);
+    const ts = [...new Set(lines.flatMap(l => l.map(q => q[0])))].sort((a, b) => a - b);
+    const at = (l, t) => { let v = l[0][1]; for (const [u, y] of l) { if (u <= t) v = y; else break; } return v; };
+    const series = ts.length > 1 ? ts.map(t => [t, lines.reduce((a, l) => a + at(l, t), 0)]) : null;
+    seriesMap.total = series;
+    const rangeLabel = RANGES.find(r => r[0] === range)[1], hid = hiddenCount();
+    const notes = [parts.some(p => p.kalshi) && 'Kalshi P&amp;L counts settled markets only', hid && `${hid} hidden, not included`].filter(Boolean).join(' · ');
+    return `<section class="col" data-ck="total">
+      <div class="head"><span class="av" style="background:var(--accent)"><svg width="20" height="20" viewBox="0 0 20 20" fill="#fff"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg></span>
+        <div class="who"><div class="n">All accounts</div><div class="w">${parts.length} accounts combined</div></div></div>
+      <div class="portfolio"><div class="k">Portfolio</div><div class="big">${allIn ? usd(total) : '…'}</div></div>
+      <div class="stats">
+        <div class="stat"><div class="k">P&amp;L (${rangeLabel})</div><div class="v ${tone(pnl)}">${allIn ? usd(pnl, true) : '…'}</div></div>
+        <div class="stat"><div class="k">Accounts</div><div class="v">${parts.length}</div></div>
+        <div class="stat"></div>
+      </div>
+      ${notes ? `<div class="rewards"><span class="note" style="margin:0">${notes}</span></div>` : ''}
+      ${series ? chart(series, 'total') : ''}
+      <div class="sec"><span>Accounts</span></div>
+      ${parts.map(p => `<button class="row acctrow" data-goto="${p.key}">${p.av}
+          <div class="t"><div class="a">${esc(p.name)}</div><div class="b">${p.port != null && total ? Math.round((p.port / total) * 100) + '% of total' : '…'}</div></div>
+          <div class="r"><div class="a">${p.port != null ? usd(p.port) : '…'}</div><div class="b ${tone(p.pnl)}">${p.pnl != null ? usd(p.pnl, true) : ''}</div></div></button>`).join('')}
+    </section>`;
+  }
   const cardCount = () => cardNames().length;
   const $ = id => document.getElementById(id);
   const ed = { open: false, results: null, busy: false, msg: '', copied: false, kbusy: false, kmsg: '', kmenu: null };
@@ -508,6 +553,11 @@
     const items = allItems();
     const loadingK = kAccts.filter(k => !kalshi.byAcct[k.id]);   // Kalshi accounts whose subaccounts haven't loaded yet
     const row = x => {
+      if (x.type === 'total') return `<div class="erow drow ${x.hidden ? 'hidden' : ''}" data-key="total">
+          <span class="handle" aria-label="Drag to reorder"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5h12M4 10h12M4 13.5h12"/></svg></span>
+          <span class="av" style="background:var(--accent)"><svg width="18" height="18" viewBox="0 0 20 20" fill="#fff"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg></span>
+          <div class="t"><div class="a">All accounts</div><div class="b">Combined total of the accounts shown${x.hidden ? ' · hidden' : ''}</div></div>
+          <button class="ebtn" data-totalhide aria-label="${x.hidden ? 'Show' : 'Hide'}">${x.hidden ? EYEOFF : EYE}</button><span class="ebtn-space"></span></div>`;
       if (x.type === 'pm') return `<div class="erow drow ${x.hidden ? 'hidden' : ''}" data-key="${x.key}">
           <span class="handle" aria-label="Drag to reorder"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5h12M4 10h12M4 13.5h12"/></svg></span>${avatar(x.a)}
           <div class="t"><div class="a">${esc(x.label)}</div><div class="b">Polymarket · ${short(x.a.w)}${x.hidden ? ' · hidden' : ''}</div></div>
@@ -556,7 +606,7 @@
     if (ed.open) return;
     const el = document.querySelector(`.list > [data-ck="${ck}"]`);
     if (!el) return render();
-    const html = ck.startsWith('p:') ? card(accounts.find(a => 'p:' + a.w === ck)) : kalshiCard((kalshi.subs || []).find(x => `k:${x.accountId}:${x.n}` === ck));
+    const html = ck === 'total' ? totalCard() : ck.startsWith('p:') ? card(accounts.find(a => 'p:' + a.w === ck)) : kalshiCard((kalshi.subs || []).find(x => `k:${x.accountId}:${x.n}` === ck));
     const t = document.createElement('template'); t.innerHTML = html.trim();
     el.replaceWith(t.content.firstElementChild);
   }
@@ -597,7 +647,7 @@
     $('tabs').style.display = ed.open ? 'none' : '';
     $('refresh').style.display = ed.open ? 'none' : '';
     if (ed.open) { $('updated').textContent = ''; $('main').innerHTML = editor(); return; }
-    $('main').innerHTML = names.length ? `<div class="list">${shownItems().map(x => (x.type === 'pm' ? card(x.a) : kalshiCard(x.s))).join('')}</div>`
+    $('main').innerHTML = names.length ? `<div class="list">${shownItems().map(x => (x.type === 'total' ? totalCard() : x.type === 'pm' ? card(x.a) : kalshiCard(x.s))).join('')}</div>`
       : `<div class="none"><h2>No accounts yet</h2>Tap <b>Add</b> at the top to add accounts by username, or paste the phone link from the Chrome extension:
           <textarea id="paste" rows="3" placeholder="https://robertora.github.io/poly-accounts/#…"></textarea>
           <button class="go" id="usepaste">Add accounts</button><div id="pasteerr" class="err"></div></div>`;
@@ -711,6 +761,12 @@
       const link = shareLink(b.dataset.copy === 'kalshi');
       try { await navigator.clipboard.writeText(link); ed.copied = b.dataset.copy; render(); setTimeout(() => { ed.copied = false; render(); }, 2500); }
       catch { prompt('Copy this link:', link); }
+      return;
+    }
+    if ('totalhide' in b.dataset) { totalHidden = !totalHidden; store.set('totalHidden', totalHidden); render(); return; }
+    if (b.dataset.goto) {
+      const i = shownItems().findIndex(x => x.key === b.dataset.goto);
+      if (i >= 0) { active = i; store.set('active', i); markTabs(); goTo(i, true); }
       return;
     }
     if (b.dataset.hidew) {
