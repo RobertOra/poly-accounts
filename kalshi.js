@@ -39,6 +39,9 @@ var KalshiClient = (() => {
     }
     return out;
   }
+  // Kalshi timestamps can carry 4-6 fractional digits (e.g. 04:30:44.55987Z); Safari can't parse those, Chrome can.
+  // Trim to milliseconds first so dates (and charts) work everywhere. Returns seconds.
+  const parseTime = t => Date.parse(String(t || '').replace(/\.(\d+)/, (m, f) => '.' + (f + '00').slice(0, 3))) / 1000;
   // Kalshi returns legacy cents fields and newer *_dollars / *_fp strings; read whichever is present.
   const num = (o, keys, cents = []) => {
     for (const k of keys) if (o[k] != null && o[k] !== '') return Number(o[k]);
@@ -89,7 +92,7 @@ var KalshiClient = (() => {
       const remaining = num(o, ['remaining_count_fp', 'remaining_count']);
       return { ticker: o.ticker, title: titles[o.ticker] || o.ticker, side: opens ? outcome : side, action: opens ? 'Buy' : 'Sell',
         price: opens ? price : (side === 'Yes' ? num(o, ['yes_price_dollars'], ['yes_price']) : num(o, ['no_price_dollars'], ['no_price'])),
-        remaining, cash: opens ? remaining * price : 0, ts: Date.parse(o.created_time) / 1000 };
+        remaining, cash: opens ? remaining * price : 0, ts: parseTime(o.created_time) };
     }).sort((a, b) => b.ts - a.ts);
     const fills = fillsRaw.map(f => {
       const side = (f.side || 'yes').toLowerCase() === 'no' ? 'No' : 'Yes';
@@ -99,13 +102,13 @@ var KalshiClient = (() => {
       const price = shown === 'Yes' ? num(f, ['yes_price_dollars'], ['yes_price']) : num(f, ['no_price_dollars'], ['no_price']);
       const count = num(f, ['count_fp', 'count']);
       return { type: opens ? 'Bought' : 'Sold', ticker: f.ticker, title: titles[f.ticker] || f.ticker,
-        side: shown, count, price, usd: count * price, ts: Date.parse(f.created_time) / 1000 };
+        side: shown, count, price, usd: count * price, ts: parseTime(f.created_time) };
     });
     const settlements = setRaw.map(s => {
       const cost = num(s, ['yes_total_cost_dollars'], ['yes_total_cost']) + num(s, ['no_total_cost_dollars'], ['no_total_cost']);
       const revenue = num(s, ['revenue_dollars'], ['revenue']), fees = num(s, ['fee_cost_dollars', 'fee_cost']);
       return { ticker: s.ticker, title: titles[s.ticker] || s.ticker, result: s.market_result, revenue, cost, pnl: revenue - cost - fees,
-        ts: Date.parse(s.settled_time) / 1000 };
+        ts: parseTime(s.settled_time) };
     });
     return { n, nick: acct.nick, accountId: acct.id, cash, positions, orders: ordersRaw.length, orderList: orders, fills, settlements };
   }
