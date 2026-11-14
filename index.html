@@ -315,7 +315,8 @@
     let lo = Math.min(...ys, 0), hi = Math.max(...ys, 0); if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
     const x = i => (i / (series.length - 1)) * W, y = v => H - 4 - ((v - lo) / (hi - lo)) * (H - 8);
     const pts = series.map((s, i) => `${x(i).toFixed(1)},${y(s[1]).toFixed(1)}`).join(' ');
-    const col = ys[ys.length - 1] >= ys[0] ? 'var(--up)' : 'var(--down)';
+    const d = ys[ys.length - 1] - ys[0];
+    const col = Math.abs(d) < 0.005 ? 'var(--faint)' : d > 0 ? 'var(--up)' : 'var(--down)';   // flat = grey, not a gain
     return `<div class="chart" data-w="${w}"><div class="tip"></div>
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         <line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" style="stroke:var(--line)" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
@@ -409,10 +410,12 @@
     const sets = [...s.settlements].sort((x, y) => x.ts - y.ts);
     const realized = sets.filter(x => x.ts >= since).reduce((t, x) => t + x.pnl, 0);
     let run = sets.filter(x => x.ts < since).reduce((t, x) => t + x.pnl, 0);
-    const series = [[Math.max(since, sets[0]?.ts || since), run]];
+    // always a line: flat across the range when nothing settled in it (P&L simply didn't move)
+    const now = Math.floor(Date.now() / 1000), start = range === 'all' ? (sets[0]?.ts ?? now - 86400) : since;
+    const series = [[start, run]];
     for (const x of sets.filter(x => x.ts >= since)) { run += x.pnl; series.push([x.ts, run]); }
-    if (series.length > 1) series.push([Math.floor(Date.now() / 1000), run]);
-    return { realized, series: series.length > 2 ? series : null };
+    series.push([now, run]);
+    return { realized, series };
   }
   const kPositionRow = p => `<div class="row"><span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>
       <div class="t"><div class="a">${esc(p.title)}${p.subtitle ? ' · ' + esc(p.subtitle) : ''}</div>
@@ -443,7 +446,7 @@
         ${ui.orders[key] ? `<div class="orderlist">${(s.orderList || []).map(o => `<div class="row">${KBADGE}
             <div class="t"><div class="a">${esc(o.title)}</div><div class="b">${o.action} <span class="oc ${o.side === 'Yes' ? 'yes' : 'no'}">${o.side}</span> · ${o.remaining.toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(o.price)} · ${ago(o.ts)}</div></div>
             <div class="r"><div class="a">${usd(o.remaining * o.price)}</div></div></div>`).join('')}</div>` : ''}` : ''}
-      ${series ? chart(series, key) : '<div class="empty">No settled markets in this range yet.</div>'}
+      ${chart(series, key)}
       <div class="sec"><div class="seg sm">
           <button data-view="positions" class="${ui.view === 'positions' ? 'on' : ''}">Positions</button>
           <button data-view="activity" class="${ui.view === 'activity' ? 'on' : ''}">Activity</button></div>
