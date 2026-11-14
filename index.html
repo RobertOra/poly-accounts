@@ -309,13 +309,13 @@
     const rewardsInRange = rewards.reduce((s, [t, x]) => s + (t >= since ? x : 0), 0);
     return { change: range === 'all' ? end : end - series[0][1], series, rewardsInRange };
   }
-  function chart(series, w) {
+  function chart(series, w, change) {
     if (!series || series.length < 2) return `<div class="empty">Not enough history for this range yet.</div>`;
     const W = 340, H = 92, ys = series.map(s => s[1]);
     let lo = Math.min(...ys, 0), hi = Math.max(...ys, 0); if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
     const x = i => (i / (series.length - 1)) * W, y = v => H - 4 - ((v - lo) / (hi - lo)) * (H - 8);
     const pts = series.map((s, i) => `${x(i).toFixed(1)},${y(s[1]).toFixed(1)}`).join(' ');
-    const d = ys[ys.length - 1] - ys[0];
+    const d = change ?? ys[ys.length - 1] - ys[0];   // colour follows the P&L number shown above the chart
     const col = Math.abs(d) < 0.005 ? 'var(--faint)' : d > 0 ? 'var(--up)' : 'var(--down)';   // flat = grey, not a gain
     return `<div class="chart" data-w="${w}"><div class="tip"></div>
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
@@ -361,7 +361,7 @@
         <div class="stat"><div class="k">Open positions</div><div class="v">${d.positions ? pos.length : '…'}</div></div>
       </div>
       ${d.rewards?.length ? `<div class="rewards">Rewards (${rangeLabel}) <span class="${tone(rewardsInRange)}">${usd(rewardsInRange, true)}</span><span class="note">included in P&amp;L</span></div>` : ''}
-      ${d.pnl ? chart(series, a.w) : '<div class="empty">Loading…</div>'}
+      ${d.pnl ? chart(series, a.w, change) : '<div class="empty">Loading…</div>'}
       ${d.error ? `<div class="err">${esc(d.error)}</div>` : ''}
       <div class="sec"><div class="seg sm">
           <button data-view="positions" class="${ui.view === 'positions' ? 'on' : ''}">Positions</button>
@@ -446,7 +446,7 @@
         ${ui.orders[key] ? `<div class="orderlist">${(s.orderList || []).map(o => `<div class="row">${KBADGE}
             <div class="t"><div class="a">${esc(o.title)}</div><div class="b">${o.action} <span class="oc ${o.side === 'Yes' ? 'yes' : 'no'}">${o.side}</span> · ${o.remaining.toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(o.price)} · ${ago(o.ts)}</div></div>
             <div class="r"><div class="a">${usd(o.remaining * o.price)}</div></div></div>`).join('')}</div>` : ''}` : ''}
-      ${chart(series, key)}
+      ${chart(series, key, realized)}
       <div class="sec"><div class="seg sm">
           <button data-view="positions" class="${ui.view === 'positions' ? 'on' : ''}">Positions</button>
           <button data-view="activity" class="${ui.view === 'activity' ? 'on' : ''}">Activity</button></div>
@@ -490,7 +490,7 @@
         <div class="stat"></div>
       </div>
       ${notes ? `<div class="rewards"><span class="note" style="margin:0">${notes}</span></div>` : ''}
-      ${series ? chart(series, 'total') : ''}
+      ${series ? chart(series, 'total', pnl) : ''}
       <div class="sec"><span>Accounts</span></div>
       ${parts.map(p => `<button class="row acctrow" data-goto="${p.key}">${p.av}
           <div class="t"><div class="a">${esc(p.name)}</div><div class="b">${p.port != null && total ? Math.round((p.port / total) * 100) + '% of total' : '…'}</div></div>
