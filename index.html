@@ -144,7 +144,7 @@
 </div>
 <div class="updated" id="updated"></div>
 <main id="main"></main>
-<script src="kalshi.js?v=654b8e39dc"></script>
+<script src="kalshi.js?v=cbacd2ddd3"></script>
 <script>
 { const f = window.fetch.bind(window); window.fetch = (u, o = {}) => f(u, { ...o, signal: o.signal || AbortSignal.timeout(15000) }); }
 </script>
@@ -407,21 +407,26 @@
   const KBADGE = '<span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>';
   function kalshiStats(s) {
     const since = range === 'all' ? 0 : Date.now() / 1000 - RANGE_SECS[range];
-    const sets = [...s.settlements].sort((x, y) => x.ts - y.ts);
+    const sets = [...s.settlements.map(x => ({ ts: x.ts, pnl: x.pnl })), ...(s.rewards || []).map(r => ({ ts: r[0], pnl: r[1] }))].sort((x, y) => x.ts - y.ts);
     const realized = sets.filter(x => x.ts >= since).reduce((t, x) => t + x.pnl, 0);
+    const rewardsInRange = (s.rewards || []).reduce((t, r) => t + (r[0] >= since ? r[1] : 0), 0);
     let run = sets.filter(x => x.ts < since).reduce((t, x) => t + x.pnl, 0);
     // always a line: flat across the range when nothing settled in it (P&L simply didn't move)
     const now = Math.floor(Date.now() / 1000), start = range === 'all' ? (sets[0]?.ts ?? now - 86400) : since;
     const series = [[start, run]];
     for (const x of sets.filter(x => x.ts >= since)) { run += x.pnl; series.push([x.ts, run]); }
     series.push([now, run]);
-    return { realized, series };
+    return { realized, series, rewardsInRange };
   }
   const kPositionRow = p => `<div class="row"><span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>
       <div class="t"><div class="a">${esc(p.title)}${p.subtitle ? ' · ' + esc(p.subtitle) : ''}</div>
         <div class="b"><span class="oc ${p.side === 'Yes' ? 'yes' : 'no'}">${p.side}</span> · ${p.shares.toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(p.avg)} → ${cents(p.price)}</div></div>
       <div class="r"><div class="a">${usd(p.value)}</div><div class="b ${tone(p.pnl)}">${usd(p.pnl, true)} ${pct(p.pct)}</div></div></div>`;
-  const kActivityRow = a => a.kind === 'settle'
+  const kActivityRow = a => a.kind === 'reward'
+    ? `<div class="row"><span class="mi glyph">${GIFT}</span>
+        <div class="t"><div class="a">Liquidity reward</div><div class="b">${a.event ? esc(a.event) + ' · ' : ''}${ago(a.ts)}</div></div>
+        <div class="r"><div class="a up">${usd(a.amount, true)}</div></div></div>`
+    : a.kind === 'settle'
     ? `<div class="row"><span class="mi glyph">${GIFT.replace('GIFT', '')}</span>
         <div class="t"><div class="a">${esc(a.title)}</div><div class="b">Settled${a.result ? ' · ' + esc(String(a.result).toUpperCase()) + ' won' : ''} · ${ago(a.ts)}</div></div>
         <div class="r"><div class="a ${tone(a.pnl)}">${usd(a.pnl, true)}</div></div></div>`
@@ -429,19 +434,21 @@
         <div class="t"><div class="a">${esc(a.title)}</div><div class="b">${a.type} <span class="oc ${a.side === 'Yes' ? 'yes' : 'no'}">${a.side}</span> at ${cents(a.price)} · ${ago(a.ts)}</div></div>
         <div class="r"><div class="a">${usd(a.usd)}</div></div></div>`;
   function kalshiCard(s) {
-    const key = s.accountId + '-' + s.n, posValue = s.positions.reduce((t, p) => t + p.value, 0), { realized, series } = kalshiStats(s);
+    const key = s.accountId + '-' + s.n, posValue = s.positions.reduce((t, p) => t + p.value, 0), { realized, series, rewardsInRange } = kalshiStats(s);
     seriesMap[key] = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1];
-    const acts = [...s.fills.map(f => ({ ...f, kind: 'fill' })), ...s.settlements.map(x => ({ ...x, kind: 'settle' }))].sort((x, y) => y.ts - x.ts);
+    const acts = [...s.fills.map(f => ({ ...f, kind: 'fill' })), ...s.settlements.map(x => ({ ...x, kind: 'settle' })),
+      ...(s.rewards || []).map(r => ({ kind: 'reward', ts: r[0], amount: r[1], event: r[2] }))].sort((x, y) => y.ts - x.ts);
     return `<section class="col" data-ck="k:${s.accountId}:${s.n}">
       <div class="head"><span class="av" style="background:#0a9b6d">K</span>
         <div class="who"><div class="n">${esc(kName(s))}</div><div class="w">${esc(KalshiClient.subCaption(kAcctOf(s), s.n))}</div></div></div>
       <div class="portfolio"><div class="k">Portfolio</div><div class="big">${usd(s.cash + posValue)}</div></div>
       <div class="stats">
         <div class="stat"><div class="k">Positions</div><div class="v">${usd(posValue)}</div></div>
-        <div class="stat"><div class="k">Settled P&amp;L (${rangeLabel})</div><div class="v ${tone(realized)}">${usd(realized, true)}</div></div>
+        <div class="stat"><div class="k">P&amp;L (${rangeLabel})</div><div class="v ${tone(realized)}">${usd(realized, true)}</div></div>
         <div class="stat"><div class="k">Open positions</div><div class="v">${s.positions.length}</div></div>
       </div>
+      ${s.rewards?.length ? `<div class="rewards">Rewards (${rangeLabel}) <span class="${tone(rewardsInRange)}">${usd(rewardsInRange, true)}</span><span class="note">included in P&amp;L</span></div>` : ''}
       ${s.orders ? `<button class="rewards orders-toggle" data-orders="${key}">Resting orders: <span>${s.orders}</span>${s.orderList?.length ? ` · <span>${usd(s.orderList.reduce((t, o) => t + (o.cash ?? o.remaining * o.price), 0))}</span>` : ''} <i>${ui.orders[key] ? '▾' : '▸'}</i></button>
         ${ui.orders[key] ? `<div class="orderlist">${(s.orderList || []).map(o => `<div class="row">${KBADGE}
             <div class="t"><div class="a">${esc(o.title)}</div><div class="b">${o.action} <span class="oc ${o.side === 'Yes' ? 'yes' : 'no'}">${o.side}</span> · ${o.remaining.toLocaleString('en-US', { maximumFractionDigits: 1 })} at ${cents(o.price)} · ${ago(o.ts)}</div></div>
@@ -479,7 +486,7 @@
     const series = ts.length > 1 ? ts.map(t => [t, lines.reduce((a, l) => a + at(l, t), 0)]) : null;
     seriesMap.total = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1], hid = hiddenCount();
-    const notes = [parts.some(p => p.kalshi) && 'Kalshi P&amp;L counts settled markets only', hid && `${hid} hidden, not included`].filter(Boolean).join(' · ');
+    const notes = [parts.some(p => p.kalshi) && 'Kalshi P&amp;L counts settled markets and rewards', hid && `${hid} hidden, not included`].filter(Boolean).join(' · ');
     return `<section class="col" data-ck="total">
       <div class="head"><span class="av" style="background:var(--accent)"><svg width="20" height="20" viewBox="0 0 20 20" fill="#fff"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg></span>
         <div class="who"><div class="n">All accounts</div><div class="w">${parts.length} accounts combined</div></div></div>

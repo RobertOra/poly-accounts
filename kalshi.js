@@ -32,7 +32,7 @@ var KalshiClient = (() => {
     const out = [];
     let cursor = '';
     for (let i = 0; i < max; i++) {
-      const j = await get(acct, path, `?${params}&limit=200${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`);
+      const j = await get(acct, path, `?${params ? params + '&' : ''}limit=200${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`);
       out.push(...(j[field] || []));
       cursor = j.cursor || '';
       if (!cursor) break;
@@ -113,13 +113,51 @@ var KalshiClient = (() => {
     return { n, nick: acct.nick, accountId: acct.id, cash, positions, orders: ordersRaw.length, orderList: orders, fills, settlements };
   }
 
+  // Liquidity incentive rewards: Kalshi pays them to the account (they land in Sub 0), naming the event.
+  // Credit each to the subaccount whose orders were in that event (most orders wins; Sub 0 if none).
+  // Matches are remembered on the device, so later refreshes only look at new rewards.
+  const ATTR_KEY = 'kalshiRewardAttr';
+  const loadAttr = () => { try { return JSON.parse(localStorage.getItem(ATTR_KEY) || '{}'); } catch { return {}; } };
+  const saveAttr = a => { try { localStorage.setItem(ATTR_KEY, JSON.stringify(a)); } catch {} };
+  async function rewards(acct, subNums) {
+    const credits = (await pages(acct, '/trade-api/v2/portfolio/credit_history', 'credits', '', 10))
+      .filter(c => c.type === 'incentive' && c.status === 'applied')
+      .map(c => ({ id: c.credit_id, amount: Number(c.amount_dollars) || 0, ts: parseTime(c.created_time), event: (String(c.reason || '').match(/event\s+([A-Za-z0-9._-]+)/) || [])[1] || '' }));
+    const attr = loadAttr(), pre = acct.keyId + ':';
+    const todo = credits.filter(c => attr[pre + c.id] == null);
+    if (todo.length) {
+      const tickers = {};
+      if (subNums.length > 1) {
+        const since = Math.floor(Math.min(...todo.map(c => c.ts)) - 4 * 86400);   // rewards pay for recent quoting
+        await Promise.all(subNums.map(async n => {
+          tickers[n] = (await pages(acct, '/trade-api/v2/portfolio/orders', 'orders', `subaccount=${n}&min_ts=${since}`, 10).catch(() => [])).map(o => o.ticker || '');
+        }));
+      }
+      for (const c of todo) {
+        let best = 0, most = 0;
+        for (const n of subNums) {
+          const k = (tickers[n] || []).filter(t => c.event && (t === c.event || t.startsWith(c.event + '-'))).length;
+          if (k > most) { best = n; most = k; }
+        }
+        attr[pre + c.id] = best;
+      }
+      saveAttr(attr);
+    }
+    const bySub = {};
+    for (const c of credits) (bySub[attr[pre + c.id]] ||= []).push([c.ts, c.amount, c.event]);
+    return bySub;
+  }
+
   // every subaccount of one Kalshi account, each reported separately
   async function summary(acct) {
     const bal = await get(acct, '/trade-api/v2/portfolio/subaccounts/balances');
     const cash = new Map();
     for (const b of bal.subaccount_balances || []) cash.set(b.subaccount_number, (cash.get(b.subaccount_number) || 0) + Number(b.balance || 0));
     if (!cash.size) cash.set(0, num(await get(acct, '/trade-api/v2/portfolio/balance'), ['balance_dollars'], ['balance']));
-    return Promise.all([...cash.keys()].sort((a, b) => a - b).map(n => subaccount(acct, n, cash.get(n))));
+    const nums = [...cash.keys()].sort((a, b) => a - b);
+    const [subs, rw] = await Promise.all([Promise.all(nums.map(n => subaccount(acct, n, cash.get(n)))), rewards(acct, nums).catch(() => ({}))]);
+    for (const s of subs) s.rewards = (rw[s.n] || []).sort((a, b) => a[0] - b[0]);   // [ts, amount, event]
+    return subs;
   }
 
   // validate a pasted key before saving it: must parse and be accepted by Kalshi
