@@ -123,8 +123,15 @@ var KalshiClient = (() => {
   // Liquidity incentive rewards: Kalshi pays them to the account (they land in Sub 0), naming the event.
   // Credit each to the subaccount whose orders were in that event (most orders wins; Sub 0 if none).
   // Matches are remembered on the device, so later refreshes only look at new rewards.
-  const ATTR_KEY = 'kalshiRewardAttr';
-  const loadAttr = () => { try { return JSON.parse(localStorage.getItem(ATTR_KEY) || '{}'); } catch { return {}; } };
+  const ATTR_KEY = 'kalshiRewardAttr2';   // v2: earlier matches could wrongly fall back to Sub 0 (order history was cut off)
+  const loadAttr = () => {
+    try {
+      const a = JSON.parse(localStorage.getItem(ATTR_KEY) || 'null');
+      if (a) return a;
+      const old = JSON.parse(localStorage.getItem('kalshiRewardAttr') || '{}');   // keep v1's real matches, drop its Sub 0 fallbacks
+      return Object.fromEntries(Object.entries(old).filter(([, n]) => n !== 0));
+    } catch { return {}; }
+  };
   const saveAttr = a => { try { localStorage.setItem(ATTR_KEY, JSON.stringify(a)); } catch {} };
   async function rewards(acct, subNums) {
     const credits = (await pages(acct, '/trade-api/v2/portfolio/credit_history', 'credits', '', 10))
@@ -135,18 +142,33 @@ var KalshiClient = (() => {
     if (todo.length) {
       const tickers = {};
       if (subNums.length > 1) {
-        const since = Math.floor(Math.min(...todo.map(c => c.ts)) - 4 * 86400);   // rewards pay for recent quoting
+        // only the orders in the rewarded events (Kalshi filters by up to 100 events), so a busy bot's history can't crowd them out
+        const events = [...new Set(todo.map(c => c.event).filter(Boolean))];
+        const chunks = []; for (let i = 0; i < events.length; i += 100) chunks.push(events.slice(i, i + 100));
         await Promise.all(subNums.map(async n => {
-          tickers[n] = (await pages(acct, '/trade-api/v2/portfolio/orders', 'orders', `subaccount=${n}&min_ts=${since}`, 10).catch(() => [])).map(o => o.ticker || '');
+          tickers[n] = [];
+          for (const ch of chunks) {
+            const os = await pages(acct, '/trade-api/v2/portfolio/orders', 'orders', `subaccount=${n}&event_ticker=${encodeURIComponent(ch.join(','))}`, 10).catch(() => []);
+            tickers[n].push(...os.map(o => o.ticker || ''));
+          }
         }));
       }
+      const unmatched = [];
       for (const c of todo) {
-        let best = 0, most = 0;
+        let best = null, most = 0;
         for (const n of subNums) {
           const k = (tickers[n] || []).filter(t => c.event && (t === c.event || t.startsWith(c.event + '-'))).length;
           if (k > most) { best = n; most = k; }
         }
-        attr[pre + c.id] = best;
+        if (best == null) unmatched.push(c); else attr[pre + c.id] = best;
+      }
+      // Kalshi drops cancelled orders from its history after a while, so older rewards may match nothing.
+      // Those go to the subaccount that earns most of the matched rewards (the farming bot), else Sub 0.
+      if (unmatched.length) {
+        const earned = {};
+        for (const c of credits) { const n = attr[pre + c.id]; if (n != null) earned[n] = (earned[n] || 0) + c.amount; }
+        const top = Object.entries(earned).sort((a, b) => b[1] - a[1])[0];
+        for (const c of unmatched) attr[pre + c.id] = top ? +top[0] : 0;
       }
       saveAttr(attr);
     }
