@@ -104,9 +104,16 @@ var KalshiClient = (() => {
       return { type: opens ? 'Bought' : 'Sold', ticker: f.ticker, title: titles[f.ticker] || f.ticker,
         side: shown, count, price, usd: count * price, ts: parseTime(f.created_time) };
     });
+    // P&L per settled market = what the contracts were worth at settlement − cost − fees.
+    // Not Kalshi's "revenue": when the bot held both Yes and No, the pairs are paid out by netting
+    // (each pair is worth $1 regardless of the result), so revenue can show $0 for a position that paid $300.
     const settlements = setRaw.map(s => {
       const cost = num(s, ['yes_total_cost_dollars'], ['yes_total_cost']) + num(s, ['no_total_cost_dollars'], ['no_total_cost']);
-      const revenue = num(s, ['revenue_dollars'], ['revenue']), fees = num(s, ['fee_cost_dollars', 'fee_cost']);
+      const fees = num(s, ['fee_cost_dollars', 'fee_cost']);
+      const yesN = num(s, ['yes_count_fp', 'yes_count']), noN = num(s, ['no_count_fp', 'no_count']);
+      const result = String(s.market_result || '').toLowerCase();
+      const v = result === 'yes' ? 1 : result === 'no' ? 0 : num(s, ['value_dollars'], ['value']);   // value of one Yes at settlement
+      const revenue = result === 'yes' || result === 'no' || s.value != null ? yesN * v + noN * (1 - v) : num(s, ['revenue_dollars'], ['revenue']);
       return { ticker: s.ticker, title: titles[s.ticker] || s.ticker, result: s.market_result, revenue, cost, pnl: revenue - cost - fees,
         ts: parseTime(s.settled_time) };
     });
