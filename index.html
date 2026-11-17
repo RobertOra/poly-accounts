@@ -313,14 +313,15 @@
     if (!series || series.length < 2) return `<div class="empty">Not enough history for this range yet.</div>`;
     const W = 340, H = 92, ys = series.map(s => s[1]);
     let lo = Math.min(...ys, 0), hi = Math.max(...ys, 0); if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
-    const x = i => (i / (series.length - 1)) * W, y = v => H - 4 - ((v - lo) / (hi - lo)) * (H - 8);
-    const pts = series.map((s, i) => `${x(i).toFixed(1)},${y(s[1]).toFixed(1)}`).join(' ');
+    const now = Date.now() / 1000, t0 = range === 'all' ? series[0][0] : Math.min(series[0][0], now - RANGE_SECS[range]), t1 = Math.max(series[series.length - 1][0], now), x = t => (t1 > t0 ? ((t - t0) / (t1 - t0)) * W : 0), y = v => H - 4 - ((v - lo) / (hi - lo)) * (H - 8);
+    const drawn = series[series.length - 1][0] < t1 ? [...series, [t1, ys[ys.length - 1]]] : series;   // same window on every chart: range start → now
+    const pts = drawn.map(s => `${x(s[0]).toFixed(1)},${y(s[1]).toFixed(1)}`).join(' ');
     const d = change ?? ys[ys.length - 1] - ys[0];   // colour follows the P&L number shown above the chart
     const col = Math.abs(d) < 0.005 ? 'var(--faint)' : d > 0 ? 'var(--up)' : 'var(--down)';   // flat = grey, not a gain
-    return `<div class="chart" data-w="${w}"><div class="tip"></div>
+    return `<div class="chart" data-w="${w}" data-t0="${t0}" data-t1="${t1}"><div class="tip"></div>
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
         <line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" style="stroke:var(--line)" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
-        <polygon points="0,${y(0)} ${pts} ${W},${y(0)}" style="fill:${col};opacity:.1"/>
+        <polygon points="${x(series[0][0]).toFixed(1)},${y(0)} ${pts} ${W},${y(0)}" style="fill:${col};opacity:.1"/>
         <polyline points="${pts}" style="fill:none;stroke:${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
         <line class="cursor" x1="0" x2="0" y1="0" y2="${H}" style="stroke:var(--faint)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
       </svg></div>`;
@@ -414,7 +415,7 @@
     // always a line: flat across the range when nothing settled in it (P&L simply didn't move)
     const now = Math.floor(Date.now() / 1000), start = range === 'all' ? (sets[0]?.ts ?? now - 86400) : since;
     const series = [[start, run]];
-    for (const x of sets.filter(x => x.ts >= since)) { run += x.pnl; series.push([x.ts, run]); }
+    for (const x of sets.filter(x => x.ts >= since)) { series.push([x.ts, run]); run += x.pnl; series.push([x.ts, run]); }   // step at each settlement/reward
     series.push([now, run]);
     return { realized, series, rewardsInRange };
   }
@@ -482,8 +483,17 @@
     // combined chart: each account's P&L line held between its points, added up
     const lines = parts.filter(p => p.series?.length > 1).map(p => p.series);
     const ts = [...new Set(lines.flatMap(l => l.map(q => q[0])))].sort((a, b) => a - b);
-    const at = (l, t) => { let v = l[0][1]; for (const [u, y] of l) { if (u <= t) v = y; else break; } return v; };
-    const series = ts.length > 1 ? ts.map(t => [t, lines.reduce((a, l) => a + at(l, t), 0)]) : null;
+    const lerp = (a, b, t) => (b[0] === a[0] ? b[1] : a[1] + ((b[1] - a[1]) * (t - a[0])) / (b[0] - a[0]));
+    const at = (l, t, right) => {   // right = value just after t (after a step), else just before
+      if (t < l[0][0]) return l[0][1];
+      if (t > l[l.length - 1][0]) return l[l.length - 1][1];
+      const j = right ? l.findLastIndex(p => p[0] <= t) : l.findIndex(p => p[0] >= t);
+      return l[j][0] === t ? l[j][1] : right ? lerp(l[j], l[j + 1], t) : lerp(l[j - 1], l[j], t);
+    };
+    const series = ts.length > 1 ? ts.flatMap(t => {
+      const a = lines.reduce((s, l) => s + at(l, t, false), 0), b = lines.reduce((s, l) => s + at(l, t, true), 0);
+      return Math.abs(a - b) < 1e-9 ? [[t, b]] : [[t, a], [t, b]];
+    }) : null;
     seriesMap.total = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1], hid = hiddenCount();
     const notes = [parts.some(p => p.kalshi) && 'Kalshi P&amp;L counts settled markets and rewards', hid && `${hid} hidden, not included`].filter(Boolean).join(' · ');
@@ -685,10 +695,11 @@
     if (!box) return;
     const series = seriesMap[box.dataset.w]; if (!series) return;
     const r = box.querySelector('svg').getBoundingClientRect();
-    const i = Math.max(0, Math.min(series.length - 1, Math.round(((e.clientX - r.left) / r.width) * (series.length - 1))));
-    const cur = box.querySelector('.cursor'), x = (i / (series.length - 1)) * 340;
+    const t0 = +box.dataset.t0, t1 = +box.dataset.t1, f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), t = t0 + f * (t1 - t0);
+    const i = Math.max(0, series.findLastIndex(p => p[0] <= t));   // value as of the time under the pointer (last known point)
+    const cur = box.querySelector('.cursor'), x = f * 340;
     cur.setAttribute('x1', x); cur.setAttribute('x2', x); cur.setAttribute('visibility', 'visible');
-    const [ts, v] = series[i];
+    const ts = Math.max(t, series[0][0]), v = series[i][1];
     box.querySelector('.tip').innerHTML = `<span class="${tone(v)}">${usd(v, true)}</span> · ${new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })}`;
   }
   document.addEventListener('submit', async e => {
