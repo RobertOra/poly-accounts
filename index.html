@@ -144,7 +144,7 @@
 </div>
 <div class="updated" id="updated"></div>
 <main id="main"></main>
-<script src="kalshi.js?v=62bf3aece5"></script>
+<script src="kalshi.js?v=a92348d0e5"></script>
 <script>
 { const f = window.fetch.bind(window); window.fetch = (u, o = {}) => f(u, { ...o, signal: o.signal || AbortSignal.timeout(15000) }); }
 </script>
@@ -408,8 +408,11 @@
   const KBADGE = '<span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>';
   function kalshiStats(s) {
     const since = range === 'all' ? 0 : Date.now() / 1000 - RANGE_SECS[range];
-    const sets = [...s.settlements.map(x => ({ ts: x.ts, pnl: x.pnl })), ...(s.rewards || []).map(r => ({ ts: r[0], pnl: r[1] }))].sort((x, y) => x.ts - y.ts);
-    const realized = sets.filter(x => x.ts >= since).reduce((t, x) => t + x.pnl, 0);
+    const sets = [...s.settlements.map(x => ({ ts: x.ts, pnl: x.pnl })), ...(s.closed || []).map(x => ({ ts: x.ts, pnl: x.pnl })), ...(s.rewards || []).map(r => ({ ts: r[0], pnl: r[1] }))].sort((x, y) => x.ts - y.ts);
+    // All time also counts open positions at today's prices, so P&L (All) = portfolio − money put in. Shorter ranges can't
+    // (Kalshi has no history of what positions were worth at the range start), so they count closed results only.
+    const open = range === 'all' ? s.positions.reduce((t, p) => t + p.pnl, 0) : 0;
+    const realized = sets.filter(x => x.ts >= since).reduce((t, x) => t + x.pnl, 0) + open;
     const rewardsInRange = (s.rewards || []).reduce((t, r) => t + (r[0] >= since ? r[1] : 0), 0);
     let run = sets.filter(x => x.ts < since).reduce((t, x) => t + x.pnl, 0);
     // always a line: flat across the range when nothing settled in it (P&L simply didn't move)
@@ -417,6 +420,7 @@
     const series = [[start, run]];
     for (const x of sets.filter(x => x.ts >= since)) { series.push([x.ts, run]); run += x.pnl; series.push([x.ts, run]); }   // step at each settlement/reward
     series.push([now, run]);
+    if (open) series.push([now, run + open]);
     return { realized, series, rewardsInRange };
   }
   const kPositionRow = p => `<div class="row"><span class="mi glyph" style="color:#fff;background:#0a9b6d;font-weight:700">K</span>
@@ -496,7 +500,7 @@
     }) : null;
     seriesMap.total = series;
     const rangeLabel = RANGES.find(r => r[0] === range)[1], hid = hiddenCount();
-    const notes = [parts.some(p => p.kalshi) && 'Kalshi P&amp;L counts settled markets and rewards', hid && `${hid} hidden, not included`].filter(Boolean).join(' · ');
+    const notes = [parts.some(p => p.kalshi) && (range === 'all' ? '' : 'Kalshi P&amp;L counts closed trades and rewards'), hid && `${hid} hidden, not included`].filter(Boolean).join(' · ');
     return `<section class="col" data-ck="total">
       <div class="head"><span class="av" style="background:var(--accent)"><svg width="20" height="20" viewBox="0 0 20 20" fill="#fff"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg></span>
         <div class="who"><div class="n">All accounts</div><div class="w">${parts.length} accounts combined</div></div></div>

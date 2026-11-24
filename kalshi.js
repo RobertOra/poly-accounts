@@ -117,7 +117,11 @@ var KalshiClient = (() => {
       return { ticker: s.ticker, title: titles[s.ticker] || s.ticker, result: s.market_result, revenue, cost, pnl: revenue - cost - fees,
         ts: parseTime(s.settled_time) };
     });
-    return { n, nick: acct.nick, accountId: acct.id, cash, positions, orders: ordersRaw.length, orderList: orders, fills, settlements };
+    // Trades closed before settlement (sold, not held to the result): Kalshi's own realized P&L and fees per market,
+    // dated when that market was last traded. Settled markets drop out of /positions, so nothing is counted twice.
+    const closed = posRaw.map(p => ({ ticker: p.ticker, pnl: num(p, ['realized_pnl_dollars'], ['realized_pnl']) - num(p, ['fees_paid_dollars'], ['fees_paid']),
+      ts: parseTime(p.last_updated_ts) })).filter(x => Math.abs(x.pnl) >= 0.005);
+    return { n, nick: acct.nick, accountId: acct.id, cash, positions, orders: ordersRaw.length, orderList: orders, fills, settlements, closed };
   }
 
   // Liquidity incentive rewards: Kalshi pays them to the account (they land in Sub 0), naming the event.
